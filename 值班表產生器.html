@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一線值班表產生器</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --ink:#1d2129; --muted:#6b7280; --line:#e3e6ea;
+    --accent:#2f6fb0; --accent-soft:#e8f0f9;
+    --w14:#e5e8eb; --w14i:#2c3238; --w14bg:transparent;
+    --w5:#ffdf9e;  --w5i:#6f3f02;  --w5bg:#fff6e2;
+    --w6:#b9d6f5;  --w6i:#0d456f;  --w6bg:#e7f1fb;
+    --w7:#f9b9be;  --w7i:#8f1620;  --w7bg:#fdeaec;
+    --ok:#1e7a46; --bad:#b42318;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+       font-size:14px;line-height:1.6}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 18px 80px}
+  header h1{font-size:22px;margin:0 0 4px}
+  header p{margin:0;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:18px;margin-top:18px}
+  .card > h2{font-size:16px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  .step{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--accent);
+        color:#fff;font-size:12px;align-items:center;justify-content:center;flex:none}
+  .hint{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  button{font:inherit;border:1px solid var(--line);background:#fff;border-radius:6px;
+         padding:5px 12px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{opacity:.88;color:#fff}
+  button.mini{padding:2px 7px;font-size:12px;line-height:1.4}
+  input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:4px 8px;
+        background:#fff;color:inherit}
+  input:focus,select:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  table{border-collapse:collapse;width:100%}
+  th,td{border:1px solid var(--line);padding:5px 8px;text-align:center}
+  th{background:#f7f8fa;font-weight:600;font-size:13px}
+  td.name,th.name{text-align:left;white-space:nowrap}
+  td.code{font-weight:700;letter-spacing:.05em}
+  .scroll{overflow-x:auto}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .num{width:56px;text-align:center}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;min-width:660px}
+  .cal .dow{text-align:center;font-size:12px;color:var(--muted);padding-bottom:2px}
+  .day{border:1px solid var(--line);border-radius:8px;padding:6px;min-height:78px;cursor:pointer;
+       background:#fff;user-select:none;position:relative}
+  .day.out{opacity:.45}
+  .day .d{font-weight:700;font-size:15px}
+  .day.h{border-color:#e5b4b4}
+  .day select{font-size:11px;padding:1px 2px;width:100%;margin-top:4px;border-radius:4px}
+  .day .lock{position:absolute;top:4px;right:5px;font-size:10px;color:var(--muted)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;
+       padding:1px 7px;border-radius:4px;margin-top:3px}
+  .t-W14{background:var(--w14);color:var(--w14i)}
+  .t-W5{background:var(--w5);color:var(--w5i)}
+  .t-W6{background:var(--w6);color:var(--w6i)}
+  .t-W7{background:var(--w7);color:var(--w7i)}
+  .stats{display:flex;flex-wrap:wrap;gap:10px}
+  .stat{border:1px solid var(--line);border-radius:8px;padding:8px 14px;min-width:104px;background:#fafbfc}
+  .stat b{display:block;font-size:18px}
+  .stat span{font-size:12px;color:var(--muted)}
+  .ok{color:var(--ok)} .bad{color:var(--bad);font-weight:700}
+  .foot{margin-top:10px;font-size:12.5px;color:var(--muted)}
+  ol.guide{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--muted)}
+  ol.guide li{margin:3px 0}
+  td.blocked{background:#b7b7b7}
+  th.rh{background:#ffff99;color:#5a4a00}
+  #msg{margin-left:8px;font-size:13px}
+  @media (prefers-color-scheme: dark){
+    :root{--bg:#16181c;--card:#1e2126;--ink:#e6e8ea;--muted:#9aa1ab;--line:#333941;
+          --accent:#5b9bd8;--accent-soft:#24313f;
+          --w14:#333941; --w14i:#d3d9e0; --w14bg:transparent;
+          --w5:#7d5a12;  --w5i:#ffe3a3;  --w5bg:#3b2f16;
+          --w6:#1b5079;  --w6i:#c4e0fa;  --w6bg:#16293a;
+          --w7:#7d2a30;  --w7i:#f9c2c6;  --w7bg:#3a2024}
+    input,select,textarea,button,.day{background:#22262c;color:var(--ink)}
+    td.blocked{background:#5a6069}
+    th.rh{background:#7a6a15;color:#fff8d0}
+    th{background:#262b32}
+    .stat{background:#22262c}
+    button.primary{background:var(--accent);color:#0d1117}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>一線值班表產生器</h1>
+  <p>勾選參與者 → 選假日 → 產生代號的配額與選班順序 → 匯出 Excel，代號對應誰再抽籤填入</p>
+</header>
+
+<!-- 1 名單 -->
+<div class="card">
+  <h2><span class="step">1</span>住院醫師名單</h2>
+  <p class="hint">
+    勾選本月要參與分配的人。<b>產生器只用人數產生代號 A、B、C…，不會把代號綁到任何人身上</b>；
+    誰是哪個代號請在會議上抽籤，抽完填進匯出的 Excel 裡的對應表即可。
+    「想值 / 不值」的欄位也在那份 Excel 上填。
+  </p>
+  <div class="scroll"><table id="tbl-roster"></table></div>
+  <div class="row" style="margin-top:10px">
+    <input id="new-name" placeholder="輸入姓名，可一次貼上多位（逗號或空白分隔）" style="width:300px">
+    <button onclick="addDoc()">＋ 新增</button>
+    <span class="foot">名單 <b id="n-all">0</b> 人，本月參與 <b id="n-on">0</b> 人</span>
+  </div>
+</div>
+
+<!-- 2 假日 -->
+<div class="card">
+  <h2><span class="step">2</span>當月放假日</h2>
+  <p class="hint">
+    點格子切換「放假 / 上班」（預設週六日放假）。分類自動判定：連假最後一天＝W7、連假其餘天＝W6、
+    單獨一天＝W7、隔天放假的上班日＝W5、其餘＝W1-4。可用格內下拉手動鎖定（🔒）。
+  </p>
+  <div class="row" style="margin-bottom:12px">
+    <label>月份 <input type="month" id="ym" onchange="setMonth(this.value)"></label>
+    <label><input type="checkbox" id="incAdj" onchange="S.incAdj=this.checked;save();render()"> 補齊週的前後月日期也要排班</label>
+    <button class="mini" onclick="resetHolidays()">重設假日（只留週六日）</button>
+  </div>
+  <div class="row" style="margin-bottom:8px;font-size:12px">
+    <span>圖例：</span>
+    <span class="tag t-W14">W1-4</span><span class="foot" style="margin:0">平日</span>
+    <span class="tag t-W5">W5</span><span class="foot" style="margin:0">隔天放假（權重 1.5）</span>
+    <span class="tag t-W6">W6</span><span class="foot" style="margin:0">連假非最後一天（2.5）</span>
+    <span class="tag t-W7">W7</span><span class="foot" style="margin:0">連假最後一天／單日假（2.5）</span>
+  </div>
+  <div class="scroll"><div class="cal" id="cal"></div></div>
+</div>
+
+<!-- 3 配額 -->
+<div class="card">
+  <h2><span class="step">3</span>各代號的班數配額</h2>
+  <p class="hint">
+    權重：W1-4 一線 1、W5 一線 1.5、W6/W7 一線 2.5、W5 8F 0.5、W1-4 8F 0.3。
+    平日有一線＋8樓夜班，假日只有一線。配額可手動修改，合計列會即時檢核。
+  </p>
+  <div class="stats" id="stats"></div>
+  <div class="scroll" style="margin-top:14px">
+    <table id="tbl-quota"></table>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button onclick="autoQuota()">⚖ 自動平均分配</button>
+    <span class="foot" id="quota-msg"></span>
+  </div>
+</div>
+
+<!-- 4 選班順序 -->
+<div class="card">
+  <h2><span class="step">4</span>選班順序與匯出</h2>
+  <p class="hint">
+    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過），方向逐輪交替。
+    每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
+    （＝你在意的任何一天，這時候還沒被選走的機率）；每個代號的分數是它所有選班次的加權平均，
+    灰格沒得選就不計分，所以分數與班數多寡無關。
+    因為代號是抽籤抽到的，只要讓<b>各代號的分數盡量接近</b>，抽到哪個都一樣公平。
+  </p>
+  <div class="row" style="margin-bottom:12px">
+    <button class="primary" onclick="bestOrder()">🔍 讓各代號的可挑比例最接近</button>
+  </div>
+  <div class="scroll" style="margin-bottom:16px"><table id="tbl-adv"></table></div>
+  <p class="hint" style="margin:14px 0 6px">
+    打勾矩陣（匯出的 Excel 也是這張，格子是只有「OK」一個選項的下拉）：表頭的 A→F／F→A 是該輪的選班方向；
+    <span style="background:#b7b7b7;padding:0 8px;border-radius:3px">灰格</span>
+    ＝該代號的那個班別配額已用完，該輪不用選。
+  </p>
+  <div class="scroll"><table id="tbl-matrix"></table></div>
+  <div class="row" style="margin-top:16px">
+    <button class="primary" onclick="exportXlsx()">⬇ 下載 Excel (.xlsx)</button>
+    <button onclick="copySheet()">📋 複製表格（含底色，直接貼進 Google Sheets）</button>
+    <button onclick="copyScript()">🔧 複製修補腳本</button>
+    <span id="msg"></span>
+  </div>
+  <p class="hint" style="margin:12px 0 0">
+    <b>下拉選單只有 .xlsx 帶得動</b>——資料驗證是試算表的物件，剪貼簿只能帶底色和文字。
+    如果一定要用貼上的，貼完再按「複製修補腳本」，到試算表
+    <b>擴充功能 → Apps Script</b> 貼上並執行一次，就會把下拉選單、公式和欄寬全部補回來。
+  </p>
+  <ol class="guide">
+    <li>按上面的<b>下載 Excel (.xlsx)</b>。</li>
+    <li>打開任何一份 Google 試算表 → <b>檔案 → 匯入 → 上傳</b>，把剛下載的檔案拖進去。</li>
+    <li>「匯入位置」選 <b>建立新試算表</b> → 匯入（下拉選單、公式、底色都會一起進來）。
+        <br>※ 想沿用現有的連結和共用設定，就改選「<b>取代目前工作表</b>」，網址不會變。</li>
+    <li>抽籤決定誰是哪個代號，在最上面那張表的<b>姓名欄下拉選單</b>選人——選完選班順序表的姓名欄和月曆下拉都會跟著生效。</li>
+    <li>右上<b>共用</b> → 取得連結 → 改成「知道連結的人<b>可以編輯</b>」，把連結發給大家。</li>
+  </ol>
+</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script>
+/* ---------- 常數 ---------- */
+const WT = {w14:1, w5:1.5, w6:2.5, w7:2.5, f5:0.5, f14:0.3};
+const CATS = [
+  {k:'w14', head:'W1-4'},
+  {k:'w5',  head:'W5'},
+  {k:'w6',  head:'W6'},
+  {k:'w7',  head:'W7'},
+  {k:'f5',  head:'W5 8F'},
+  {k:'f14', head:'W1-4 8F'},
+];
+const CLS = ['W1-4','W5','W6','W7'];
+const CLS_KEY = {'W1-4':'w14','W5':'w5','W6':'w6','W7':'w7'};
+const DOW = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+const ZERO = () => ({w14:0,w5:0,w6:0,w7:0,f5:0,f14:0});
+const LETTER = i => i < 26 ? String.fromCharCode(65+i)
+                           : String.fromCharCode(64+Math.floor(i/26)) + String.fromCharCode(65+i%26);
+
+/* ---------- 狀態 ---------- */
+let S = load() || {
+  ym: nextMonth(),
+  roster: [],     // [{name, on}] 名單與是否參與本月；代號不綁人
+  holi: {},       // 'YYYY-MM-DD' -> true/false（未列出者依週六日預設）
+  ovr:  {},       // 'YYYY-MM-DD' -> 'W1-4'|'W5'|'W6'|'W7'
+  quota: null,    // [{w14,...}] 依代號索引
+  ticks: {},      // 'round-代號' -> true（打勾矩陣）
+  incAdj: false,
+};
+function save(){ try{ localStorage.setItem('duty-gen', JSON.stringify(S)); }catch(e){} }
+function load(){
+  try{
+    const v = JSON.parse(localStorage.getItem('duty-gen'));
+    if(!v || !Array.isArray(v.roster)) return null;     // 舊版格式一律重來
+    return v;
+  }catch(e){ return null; }
+}
+function nextMonth(){
+  const t = new Date(); t.setDate(1); t.setMonth(t.getMonth()+1);
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
+}
+const nOn = () => S.roster.filter(r => r.on).length;
+const onNames = () => S.roster.filter(r => r.on).map(r => r.name);
+function resetQuota(){ S.quota = null; S.ticks = {}; }
+
+/* ---------- 日期 ---------- */
+const pad = n => String(n).padStart(2,'0');
+const key = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+
+function gridDays(){                       // 月曆格（週一起始，補滿整週）
+  const [y,m] = S.ym.split('-').map(Number);
+  const first = new Date(y, m-1, 1), last = new Date(y, m, 0);
+  const start = addDays(first, -((first.getDay()+6)%7));
+  const end   = addDays(last,  6-((last.getDay()+6)%7));
+  const out = [];
+  for(let d=new Date(start); d<=end; d=addDays(d,1))
+    out.push({date:new Date(d), key:key(d), inMonth:d.getMonth()===m-1});
+  return out;
+}
+function isHoli(d){
+  const k = key(d);
+  if(k in S.holi) return S.holi[k];
+  const w = d.getDay();
+  return w===0 || w===6;
+}
+function autoCls(d){
+  if(isHoli(d)) return isHoli(addDays(d,1)) ? 'W6' : 'W7';   // 連假最後一天＝W7
+  return isHoli(addDays(d,1)) ? 'W5' : 'W1-4';               // 隔天放假＝W5
+}
+const clsOf = d => S.ovr[key(d)] || autoCls(d);
+const schedDays = () => gridDays().filter(x => S.incAdj || x.inMonth);
+
+function counts(){
+  const c = ZERO();
+  for(const x of schedDays()){
+    const cl = clsOf(x.date);
+    c[CLS_KEY[cl]]++;
+    if(cl==='W1-4') c.f14++;
+    else if(cl==='W5') c.f5++;
+  }
+  return c;
+}
+const totalWeight = c => CATS.reduce((s,ct)=> s + c[ct.k]*WT[ct.k], 0);
+const rowWeight   = q => CATS.reduce((s,ct)=> s + (q[ct.k]||0)*WT[ct.k], 0);
+const rowShifts   = q => CATS.reduce((s,ct)=> s + (q[ct.k]||0), 0);
+const quotaOf = i => (S.quota && S.quota[i]) ? S.quota[i] : ZERO();
+
+/* ---------- 配額分配 ---------- */
+// 每班別先平均分（取整），餘數給目前權重缺口最大的代號；再以轉移／交換微調把總權重拉近平均。
+function calcQuota(){
+  const n = nOn(); if(!n) return [];
+  const c = counts(), target = totalWeight(c)/n;
+  const q = Array.from({length:n}, ZERO);
+  for(const ct of [...CATS].sort((a,b)=> WT[b.k]-WT[a.k])){
+    const cnt = c[ct.k], base = Math.floor(cnt/n), rem = cnt % n;
+    q.forEach(x => x[ct.k] = base);
+    const rank = q.map((x,i)=>i).sort((a,b)=>{
+      const ga = target - rowWeight(q[a]), gb = target - rowWeight(q[b]);
+      if(Math.abs(ga-gb) > 1e-9) return gb-ga;
+      return rowShifts(q[a]) - rowShifts(q[b]);
+    });
+    for(let i=0;i<rem;i++) q[rank[i]][ct.k]++;
+  }
+  balanceQuota(q, c, target);
+  return q;
+}
+function balanceQuota(q, c, target){
+  const n = q.length;
+  const avgShifts = CATS.reduce((s,ct)=> s + c[ct.k], 0)/n;
+  const lo = {}, hi = {}, avg = {};
+  CATS.forEach(ct => {
+    avg[ct.k] = c[ct.k]/n;
+    lo[ct.k] = Math.max(0, Math.floor(avg[ct.k]) - 1);
+    hi[ct.k] = Math.ceil(avg[ct.k]) + 1;
+  });
+  const cost = () => q.reduce((s,x)=>{
+    let v = Math.pow(rowWeight(x)-target, 2) + 0.06*Math.pow(rowShifts(x)-avgShifts, 2);
+    CATS.forEach(ct => v += 0.03*Math.pow((x[ct.k]||0)-avg[ct.k], 2));
+    return s+v;
+  }, 0);
+  const canMove = (a,b,k) => q[a][k] > lo[k] && q[b][k] < hi[k];
+  const move = (a,b,k) => { q[a][k]--; q[b][k]++; };
+
+  for(let iter=0; iter<400; iter++){
+    const cur = cost(); let best = null;
+    for(let a=0;a<n;a++) for(let b=0;b<n;b++){
+      if(a === b) continue;
+      for(const ct of CATS){
+        const k = ct.k;
+        if(!canMove(a,b,k)) continue;
+        move(a,b,k);
+        const v1 = cost();
+        if(v1 < cur-1e-9 && (!best || v1 < best.v)) best = {v:v1, ops:[[a,b,k]]};
+        for(const ct2 of CATS){            // 交換：a 給 k、b 回給 j，總班數不變
+          const j = ct2.k;
+          if(j === k || !canMove(b,a,j)) continue;
+          move(b,a,j);
+          const v2 = cost();
+          if(v2 < cur-1e-9 && (!best || v2 < best.v)) best = {v:v2, ops:[[a,b,k],[b,a,j]]};
+          move(a,b,j);
+        }
+        move(b,a,k);
+      }
+    }
+    if(!best) break;
+    best.ops.forEach(o => move(o[0], o[1], o[2]));
+  }
+}
+function autoQuota(){ S.quota = calcQuota(); S.ticks = {}; optimize(); save(); render(); }
+function setQuota(i,k,v){
+  if(!S.quota) S.quota = calcQuota();
+  if(!S.quota[i]) return;
+  S.quota[i][k] = Math.max(0, parseInt(v)||0);
+  S.ticks = {}; save(); renderQuota(); renderRound();
+}
+
+/* ---------- Round 選班順序 ---------- */
+// 每個班別分成數輪，第 r 輪由「該班別配額 ≥ r」的代號參加（配額用完的代號該輪蓋掉）。
+// 方向逐輪反轉：上一輪最後選的，下一輪先選。
+const RGROUPS = [
+  {short:'W567',  name:'W5 / W6 / W7 一線', keys:['w5','w6','w7']},
+  {short:'W1-4',  name:'W1-4 一線',         keys:['w14']},
+  {short:'W5 8F', name:'W5 8F 夜班',        keys:['f5']},
+  {short:'8F',    name:'W1-4 8F 夜班',      keys:['f14']},
+];
+function roundList(){
+  const n = nOn(); if(!n || !S.quota) return [];
+  const out = []; let i = 0;
+  for(const g of RGROUPS){
+    const q = S.quota.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
+    const maxR = Math.max(0, ...q);
+    for(let r=1; r<=maxR; r++){
+      const join = q.map((v,j)=>j).filter(j => q[j] >= r);
+      if(!join.length) continue;
+      const fwd = i%2 === 0;
+      const seq = fwd ? join : [...join].reverse();
+      out.push({
+        no: ++i, short:g.short, cat:g.name, fwd, seq,
+        blocked: q.map((v,j)=>j).filter(j => q[j] < r),
+        label: seq.length > 1 ? `${LETTER(seq[0])}→${LETTER(seq[seq.length-1])}`
+                              : LETTER(seq[0]),          // 只剩一個代號就不用箭頭
+      });
+    }
+  }
+  return out;
+}
+
+/* ---------- 先選機會分 ---------- */
+// 一次選班的價值 = 該班別搶手度 × 「輪到我時還剩多少班可挑」。
+// 該班別共 T 班、輪到你前已被選走 t 班，剩餘比例 (T-t)/T 就是
+// 「你在意的任何一天這時候還沒被選走」的機率——不需要假設在意幾天。
+// 每個代號的分數 = 它所有選班次的加權平均（灰格沒得選，不計分也不佔名額）。
+// 搶手度沿用班別權重：假日班最需要挑日期，8F 夜班值哪天差別最小。
+const RVAL = {'W567':2.5, 'W1-4':1, 'W5 8F':0.5, '8F':0.3};
+const avail = (t, T) => T > 0 ? (T-t)/T : 0;
+function scoreOrder(Q){
+  const n = Q.length, num = new Array(n).fill(0), den = new Array(n).fill(0);
+  let gi = 0;
+  for(const g of RGROUPS){
+    const v = RVAL[g.short] || 1;
+    const q = Q.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
+    const maxR = Math.max(0, ...q), T = q.reduce((a,b)=> a+b, 0);
+    let t = 0;
+    for(let r=1; r<=maxR; r++){
+      const idx = []; for(let i=0;i<n;i++) if(q[i] >= r) idx.push(i);
+      if(!idx.length) continue;
+      const fwd = gi%2 === 0; gi++;
+      const seq = fwd ? idx : idx.reverse();
+      for(const i of seq){ num[i] += v * avail(t, T); den[i] += v; t++; }
+    }
+  }
+  return num.map((x,i)=> den[i] ? x/den[i] : 0);
+}
+const oppScore = () => S.quota ? scoreOrder(S.quota) : [];
+
+// 把已算好的配額組合重新配到代號上，讓各代號的可挑比例差距最小
+function optimize(){
+  const n = S.quota ? S.quota.length : 0; if(n < 2) return;
+  const base = S.quota;
+  const cost = order => {
+    const sc = scoreOrder(order.map(i => base[i]));
+    const mean = sc.reduce((a,b)=>a+b,0)/n;
+    return (Math.max(...sc) - Math.min(...sc))
+         + 0.001*sc.reduce((a,b)=> a + (b-mean)*(b-mean), 0)/n;
+  };
+  let best = base.map((x,i)=>i), bestC = cost(best);
+  const try_ = ord => { const c = cost(ord); if(c < bestC - 1e-12){ bestC = c; best = [...ord]; } };
+
+  if(n <= 8){                                       // 全排列窮舉（8! = 40320）
+    const a = base.map((x,i)=>i), cnt = new Array(n).fill(0);
+    let i = 0;
+    while(i < n){
+      if(cnt[i] < i){
+        const j = i%2 ? cnt[i] : 0;
+        [a[i],a[j]] = [a[j],a[i]];
+        try_(a); cnt[i]++; i = 0;
+      } else { cnt[i] = 0; i++; }
+    }
+  } else {                                          // 人多時：隨機重啟 + 兩兩交換爬山
+    for(let rs=0; rs<80; rs++){
+      const ord = base.map((x,i)=>i);
+      for(let i=n-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [ord[i],ord[j]]=[ord[j],ord[i]]; }
+      let cur = cost(ord), moved = true;
+      while(moved){
+        moved = false;
+        for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+          [ord[i],ord[j]] = [ord[j],ord[i]];
+          const c2 = cost(ord);
+          if(c2 < cur - 1e-12){ cur = c2; moved = true; }
+          else [ord[i],ord[j]] = [ord[j],ord[i]];
+        }
+      }
+      try_(ord);
+    }
+  }
+  S.quota = best.map(i => base[i]);
+  S.ticks = {};
+}
+function bestOrder(){
+  if(!S.quota) S.quota = calcQuota();
+  optimize(); save(); render();
+}
+
+/* ---------- 畫面 ---------- */
+function render(){
+  document.getElementById('ym').value = S.ym;
+  document.getElementById('incAdj').checked = !!S.incAdj;
+  renderRoster(); renderCal(); renderQuota(); renderRound();
+}
+
+function renderRoster(){
+  let h = '<tr><th style="width:80px">參與</th><th class="name">姓名</th>'
+        + '<th style="width:70px">刪除</th></tr>';
+  if(!S.roster.length)
+    h += '<tr><td colspan="3" class="foot" style="padding:14px">'
+       + '尚未新增醫師——在下方輸入姓名，可一次貼上多位（例如「甲 乙 丙」或「甲,乙,丙」）。</td></tr>';
+  S.roster.forEach((r,i)=>{
+    h += `<tr>
+      <td><input type="checkbox" ${r.on?'checked':''} onchange="toggleOn(${i},this.checked)"></td>
+      <td class="name"><input value="${esc(r.name)}" style="width:160px"
+            onchange="S.roster[${i}].name=this.value;save();render()"></td>
+      <td><button class="mini" onclick="delDoc(${i})">✕</button></td></tr>`;
+  });
+  document.getElementById('tbl-roster').innerHTML = h;
+  document.getElementById('n-all').textContent = S.roster.length;
+  document.getElementById('n-on').textContent = nOn();
+}
+function addDoc(){
+  const el = document.getElementById('new-name');
+  const names = el.value.split(/[,，、;；\s]+/).map(x=>x.trim()).filter(Boolean);
+  let added = 0;
+  for(const nm of names){
+    if(S.roster.some(r => r.name === nm)) continue;     // 同名不重複加入
+    S.roster.push({name:nm, on:true}); added++;
+  }
+  if(!added) return;
+  el.value = ''; resetQuota(); save(); render();
+}
+function delDoc(i){ S.roster.splice(i,1); resetQuota(); save(); render(); }
+function toggleOn(i,v){ S.roster[i].on = v; resetQuota(); save(); render(); }
+
+function renderCal(){
+  let h = ['一','二','三','四','五','六','日'].map(x=>`<div class="dow">星期${x}</div>`).join('');
+  for(const x of gridDays()){
+    const cl = clsOf(x.date), holi = isHoli(x.date), locked = !!S.ovr[x.key];
+    const bg = `var(--${cl==='W1-4'?'w14':CLS_KEY[cl]}bg)`;
+    h += `<div class="day${x.inMonth?'':' out'}${holi?' h':''}" style="background:${bg}"
+            onclick="toggleHoli('${x.key}')">
+      ${locked?'<span class="lock">🔒</span>':''}
+      <div class="d">${x.date.getMonth()+1}/${x.date.getDate()}</div>
+      <span class="tag t-${cl.replace('-','')}">${cl}</span>
+      <select onclick="event.stopPropagation()" onchange="setOvr('${x.key}',this.value)">
+        <option value="">自動</option>
+        ${CLS.map(c=>`<option value="${c}" ${S.ovr[x.key]===c?'selected':''}>${c}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+  document.getElementById('cal').innerHTML = h;
+}
+function toggleHoli(k){
+  S.holi[k] = !isHoli(new Date(k+'T00:00:00'));
+  resetQuota(); save(); render();
+}
+function setOvr(k,v){
+  if(v) S.ovr[k]=v; else delete S.ovr[k];
+  resetQuota(); save(); render();
+}
+function resetHolidays(){ S.holi={}; S.ovr={}; resetQuota(); save(); render(); }
+function setMonth(v){ S.ym=v; S.holi={}; S.ovr={}; resetQuota(); save(); render(); }
+
+function renderQuota(){
+  const c = counts(), tw = totalWeight(c), n = nOn();
+  const target = n ? tw/n : 0;
+  const totalShifts = CATS.reduce((s,ct)=>s+c[ct.k],0);
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><b>${schedDays().length}</b><span>排班天數</span></div>
+    <div class="stat"><b>${totalShifts}</b><span>總班數</span></div>
+    <div class="stat"><b>${round1(tw)}</b><span>總權重</span></div>
+    <div class="stat"><b>${n}</b><span>參與人數</span></div>
+    <div class="stat"><b>${round2(target)}</b><span>每人目標權重</span></div>`;
+
+  if(n && (!S.quota || S.quota.length !== n)){ S.quota = calcQuota(); optimize(); }
+  if(!n) S.quota = null;
+
+  let h = '<tr><th class="name">代號</th>' + CATS.map(ct=>`<th>${ct.head}<br><small>${WT[ct.k]}</small></th>`).join('')
+        + '<th>班數</th><th>權重</th><th>與目標差</th></tr>';
+  const sum = ZERO();
+  for(let i=0;i<n;i++){
+    const q = quotaOf(i);
+    CATS.forEach(ct => sum[ct.k] += (q[ct.k]||0));
+    const w = rowWeight(q), diff = w-target;
+    h += `<tr><td class="code">${LETTER(i)}</td>`
+      + CATS.map(ct=>`<td><input class="num" type="number" min="0" value="${q[ct.k]||0}"
+          onchange="setQuota(${i},'${ct.k}',this.value)"></td>`).join('')
+      + `<td>${rowShifts(q)}</td><td><b>${round1(w)}</b></td>
+         <td class="${Math.abs(diff)<=0.6?'ok':'bad'}">${diff>0?'+':''}${round1(diff)}</td></tr>`;
+  }
+  h += '<tr><th class="name">配額合計</th>'
+     + CATS.map(ct=>`<th class="${sum[ct.k]!==c[ct.k]?'bad':'ok'}">${sum[ct.k]}</th>`).join('')
+     + `<th>${CATS.reduce((s,ct)=>s+sum[ct.k],0)}</th><th colspan="2"></th></tr>`
+     + '<tr><th class="name">本月實際班數</th>'
+     + CATS.map(ct=>`<th>${c[ct.k]}</th>`).join('')
+     + `<th>${totalShifts}</th><th colspan="2"></th></tr>`;
+  document.getElementById('tbl-quota').innerHTML = h;
+
+  const bad = CATS.filter(ct => sum[ct.k] !== c[ct.k]);
+  document.getElementById('quota-msg').innerHTML = !n
+    ? '<span class="bad">尚未勾選任何參與者</span>'
+    : bad.length ? `<span class="bad">配額合計與實際班數不符：${bad.map(ct=>ct.head).join('、')}</span>`
+                 : '<span class="ok">✓ 配額合計與本月班數相符</span>';
+}
+
+function renderRound(){
+  const rs = roundList(), adv = oppScore(), n = nOn();
+  const spread = n ? Math.max(...adv)-Math.min(...adv) : 0;
+
+  let av = '<tr><th class="name">代號</th>' + Array.from({length:n},(_,i)=>`<th>${LETTER(i)}</th>`).join('')
+         + '<th>差距</th></tr>'
+         + '<tr><td class="name">平均可挑比例</td>'
+         + adv.map(v=>`<td><b>${Math.round(v*100)}%</b></td>`).join('')
+         + `<td class="${spread<=0.05?'ok':'bad'}">${Math.round(spread*100)}%</td></tr>`
+         + '<tr><td class="name">配額權重 / 班數</td>'
+         + Array.from({length:n},(_,i)=>`<td>${round1(rowWeight(quotaOf(i)))} / ${rowShifts(quotaOf(i))}</td>`).join('')
+         + '<td>—</td></tr>';
+  document.getElementById('tbl-adv').innerHTML = n ? av : '';
+
+  let m = '<tr><th class="name" style="width:90px">班別</th>'
+        + rs.map(r=>`<th>${r.short}</th>`).join('') + '</tr>'
+        + '<tr><th class="name"></th>'
+        + rs.map(r=>`<th class="rh">Round ${r.no}</th>`).join('') + '</tr>'
+        + '<tr><th class="name">順序</th>'
+        + rs.map(r=>`<th>${r.label}</th>`).join('') + '</tr>';
+  for(let i=0;i<n;i++){
+    m += `<tr><td class="code">${LETTER(i)}</td>`
+      + rs.map(r=>{
+          if(r.blocked.includes(i)) return '<td class="blocked"></td>';
+          const id = r.no+'-'+i;
+          return `<td><input type="checkbox" ${S.ticks[id]?'checked':''}
+                    onchange="tick('${id}',this.checked)"></td>`;
+        }).join('')
+      + '</tr>';
+  }
+  document.getElementById('tbl-matrix').innerHTML = n ? m : '';
+}
+function tick(id,v){ if(v) S.ticks[id]=true; else delete S.ticks[id]; save(); }
+
+const round1 = x => Math.round(x*10)/10;
+const round2 = x => Math.round(x*100)/100;
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+/* ---------- 產生工作表資料（xlsx / 複製共用） ---------- */
+function buildSheet(){
+  const [y,m] = S.ym.split('-').map(Number);
+  const c = counts(), n = nOn(), target = n ? totalWeight(c)/n : 0;
+  const days = gridDays();
+  const weeks = []; for(let i=0;i<days.length;i+=7) weeks.push(days.slice(i,i+7));
+
+  const rows = [];
+  const put = (r,ci,v,extra) => { (rows[r] = rows[r]||[])[ci] = Object.assign({v}, extra||{}); };
+  const A = i => { let s='', x=i+1; while(x>0){ s = String.fromCharCode(65+(x-1)%26)+s; x=Math.floor((x-1)/26);} return s; };
+
+  /* --- 標題 --- */
+  put(0,0, `${y}年${m}月 一線值班選班表`, {cls:'title'});
+  put(1,0, '抽籤決定誰是哪個代號，在 B 欄的下拉選單選姓名；選完下方選班順序表與月曆的下拉都會跟著生效。',
+      {cls:'note'});
+
+  /* --- 代號 × 配額 × 願望清單（同一張表） --- */
+  const WROW = 2, HROW = 3, R0 = 4;
+  put(WROW,1,'權重',{cls:'head'});
+  CATS.forEach((ct,i)=> put(WROW, 2+i, WT[ct.k], {cls:'wt'}));
+  const HEAD = ['代號','姓名（抽籤填入）','W1-4','W5','W6','W7','W5 8F','W1-4 8F',
+                '班數','配額權重','想值日期','不值日期'];
+  HEAD.forEach((t,i)=> put(HROW, i, t, {cls:'head'}));
+
+  for(let i=0;i<n;i++){
+    const r = R0+i, q = quotaOf(i), L = r+1;
+    put(r,0, LETTER(i), {cls:'code'});
+    put(r,1, '', {cls:'pickname'});                             // 姓名：抽籤後從下拉選
+    CATS.forEach((ct,j)=> put(r, 2+j, q[ct.k]||0, {cls:'in'}));
+    put(r,8, null, {f:`SUM(C${L}:H${L})`});
+    put(r,9, null, {f:`C${L}*1+D${L}*1.5+E${L}*2.5+F${L}*2.5+G${L}*0.5+H${L}*0.3`, cls:'b'});
+    put(r,10,'',{cls:'in'});
+    put(r,11,'',{cls:'in'});
+  }
+  const RE = R0+n;
+  put(RE,0,'合計',{cls:'head'}); put(RE,1,'',{cls:'head'});
+  CATS.forEach((ct,j)=> put(RE, 2+j, null, {f:`SUM(${A(2+j)}${R0+1}:${A(2+j)}${RE})`, cls:'head'}));
+  put(RE,8, null, {f:`SUM(I${R0+1}:I${RE})`, cls:'head'});
+  put(RE,9, null, {f:`SUM(J${R0+1}:J${RE})`, cls:'head'});
+  put(RE+1,0,'本月實際班數',{cls:'head'}); put(RE+1,1,'',{cls:'head'});
+  CATS.forEach((ct,j)=> put(RE+1, 2+j, c[ct.k], {cls:'head'}));
+  put(RE+1,8, CATS.reduce((s,ct)=>s+c[ct.k],0), {cls:'head'});
+  put(RE+1,9, round2(totalWeight(c)), {cls:'head'});
+  put(RE+2,0, `每人目標權重 ${round2(target)}（總權重 ${round1(totalWeight(c))} ÷ ${n} 人）`, {cls:'note'});
+  put(RE+3,0, `本月參與抽籤（${n} 人）：` + (onNames().join('、') || '—'), {cls:'note'});
+
+  const blocks = [{r0:WROW, c0:0, r1:RE+1, c1:11}];     // ① 權重分配
+
+  /* --- 選班順序：打勾矩陣 --- */
+  let r = RE+5;
+  const rs = roundList();
+  const MC = 2;                                   // 輪次欄從第 3 欄（C）開始
+  put(r,0,'選班順序（輪到自己選完班就勾起來）',{cls:'title'});
+  put(r,MC+2,'灰格＝該輪配額已用完，不用選',{cls:'note'});
+  r++;
+  const mtxTop = r;
+  put(r,0,'班別',{cls:'head'}); put(r,1,'',{cls:'head'});
+  rs.forEach((x,j)=> put(r, MC+j, x.short, {cls:'head'}));
+  r++;
+  put(r,0,'',{cls:'roundhead'}); put(r,1,'',{cls:'roundhead'});
+  rs.forEach((x,j)=> put(r, MC+j, 'Round '+x.no, {cls:'roundhead'}));
+  r++;
+  put(r,0,'代號',{cls:'head'}); put(r,1,'姓名',{cls:'head'});
+  rs.forEach((x,j)=> put(r, MC+j, x.label, {cls:'head'}));
+  r++;
+  for(let i=0;i<n;i++){
+    put(r,0, LETTER(i), {cls:'code'});
+    put(r,1, null, {f:`$B$${R0+i+1}`});            // 直接對應上方的姓名欄
+    rs.forEach((x,j)=>{
+      if(x.blocked.includes(i)) put(r, MC+j, null, {cls:'blocked'});
+      else put(r, MC+j, S.ticks[x.no+'-'+i] ? 'OK' : null, {cls:'tick'});   // 未勾選＝真正空白
+    });
+    r++;
+  }
+  if(n) blocks.push({r0:mtxTop, c0:0, r1:r-1, c1:MC+rs.length-1});   // ② 選班順序
+
+  /* --- 月曆 --- */
+  r += 1;
+  put(r,0, `${y}年${m}月 班表`, {cls:'title'}); r++;
+  const calTop = r;
+  put(r,0,'',{cls:'head'});
+  for(let i=0;i<7;i++) put(r, 1+i, DOW[(i+1)%7], {cls:'head'});
+  r++;
+  weeks.forEach((wk,wi)=>{
+    const rD=r, rC=r+1, rDuty=r+2, rNight=r+3;
+    put(rD,0, `第${wi+1}週`, {cls:'head'});
+    put(rC,0, '班別',       {cls:'head'});
+    put(rDuty,0,'一線值班', {cls:'head'});
+    put(rNight,0,'8F 夜班', {cls:'head'});
+    wk.forEach((x,di)=>{
+      const ci = 1+di, cl = clsOf(x.date), sched = S.incAdj || x.inMonth;
+      const style = 'c'+cl.replace('-','');
+      put(rD, ci, `${x.date.getMonth()+1}/${x.date.getDate()}`, {cls: sched?style:'out'});
+      put(rC, ci, sched?cl:'', {cls: sched?style:'out'});
+      put(rDuty, ci, '', {cls: sched?'pick':'out'});
+      const hasNight = sched && (cl==='W1-4' || cl==='W5');
+      put(rNight, ci, hasNight ? '' : (sched ? '—' : ''), {cls: hasNight?'pick':'out'});
+    });
+    r += 4;
+  });
+
+  blocks.push({r0:calTop, c0:0, r1:r-1, c1:7});                     // ③ 班表
+
+  const nameRange = n ? `$B$${R0+1}:$B$${RE}` : null;      // 姓名欄（月曆下拉的來源）
+  const nameList  = onNames();                            // 抽籤池（姓名欄下拉的來源）
+  return {rows, nameRange, nameList, blocks, title:`${y}年${m}月`};
+}
+
+/* ---------- 匯出 xlsx ---------- */
+const FILL = {
+  title:null, head:'FFF1F3F5', wt:'FFEFF4FA', name:null, in:'FFFFFDF0', code:'FFEFF4FA',
+  cW14:'FFEFF1F3', cW5:'FFFFEFC8', cW6:'FFDDEBF9', cW7:'FFFBD6D9',
+  pick:'FFFFFFFF', out:'FFF7F7F7', note:null, b:null, pickname:'FFFFF6D8',
+  roundhead:'FFFFFF99', blocked:'FFB7B7B7', tick:'FFFFFFFF'
+};
+const INK = {cW14:'FF2C3238', cW5:'FF6F3F02', cW6:'FF0D456F', cW7:'FF8F1620'};
+async function exportXlsx(){
+  if(!window.ExcelJS){ msg('ExcelJS 未載入（需連網），請改用「複製表格」貼到 Google Sheets', true); return; }
+  const {rows, nameRange, nameList, blocks, title} = buildSheet();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(title+'選班');
+  const widths = [10,14,11,11,11,11,11,11,9,11,13,13];
+  // 姓名欄的下拉＝本月參與名單（名字太多或含逗號就不做驗證，改直接手打）
+  const nameOpt = nameList.join(',');
+  const nameDV = (nameList.length && nameOpt.length <= 250 && !nameList.some(x=>x.includes(',')))
+    ? '"'+nameOpt+'"' : null;
+  const maxCol = rows.reduce((mx,row)=> Math.max(mx, row?row.length:0), 0);
+  for(let i=0;i<maxCol;i++) ws.getColumn(i+1).width = widths[i] || 9;
+
+  rows.forEach((row,r)=>{
+    if(!row) return;
+    row.forEach((cell,ci)=>{
+      if(!cell) return;
+      const c = ws.getCell(r+1, ci+1);
+      c.value = cell.f ? {formula:cell.f} : cell.v;
+      c.alignment = {vertical:'middle',
+        horizontal:(cell.cls==='name'||cell.cls==='note'||cell.cls==='title') ? 'left' : 'center'};
+      c.border = {top:{style:'thin',color:{argb:'FFD8DCE0'}},left:{style:'thin',color:{argb:'FFD8DCE0'}},
+                  bottom:{style:'thin',color:{argb:'FFD8DCE0'}},right:{style:'thin',color:{argb:'FFD8DCE0'}}};
+      const fill = FILL[cell.cls];
+      if(fill) c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
+      if(cell.cls==='title'){ c.font={bold:true, size:12}; c.border=undefined; }
+      if(cell.cls==='head' || cell.cls==='b' || cell.cls==='code') c.font={bold:true};
+      if(cell.cls==='note'){ c.font={italic:true, color:{argb:'FF6B7280'}}; c.border=undefined; }
+      if(cell.cls==='out') c.font={color:{argb:'FFB0B5BB'}};
+      if(INK[cell.cls]) c.font = {color:{argb:INK[cell.cls]}, bold:true};
+      if(cell.cls==='pick' && nameRange)                       // 值班格：選姓名
+        c.dataValidation = {type:'list', allowBlank:true, formulae:[nameRange]};
+      if(cell.cls==='pickname' && nameDV)                     // 代號的姓名：抽籤結果下拉
+        c.dataValidation = {type:'list', allowBlank:true, formulae:[nameDV]};
+      if(cell.cls==='tick')                                    // 打勾格：只有 OK 一個選項
+        c.dataValidation = {type:'list', allowBlank:true, showErrorMessage:false,
+                            errorStyle:'warning', formulae:['"OK"']};
+    });
+  });
+  // 三個區塊各自加外框
+  const MED = {style:'medium', color:{argb:'FF8A9099'}};
+  for(const b of blocks){
+    for(let ci=b.c0; ci<=b.c1; ci++){
+      const t = ws.getCell(b.r0+1, ci+1), bt = ws.getCell(b.r1+1, ci+1);
+      t.border  = Object.assign({}, t.border,  {top:MED});
+      bt.border = Object.assign({}, bt.border, {bottom:MED});
+    }
+    for(let rr=b.r0; rr<=b.r1; rr++){
+      const l = ws.getCell(rr+1, b.c0+1), rt = ws.getCell(rr+1, b.c1+1);
+      l.border  = Object.assign({}, l.border,  {left:MED});
+      rt.border = Object.assign({}, rt.border, {right:MED});
+    }
+  }
+  ws.getRow(1).height = 22;
+  ws.views = [{state:'frozen', ySplit:4}];
+  const buf = await wb.xlsx.writeBuffer();
+  dl(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
+     `一線值班_${S.ym}.xlsx`);
+  msg('已下載 Excel，可上傳到 Google 雲端硬碟');
+}
+
+/* ---------- 複製到試算表 ---------- */
+const cellText = c => !c ? '' : (c.f ? '='+c.f : (c.v==null ? '' : String(c.v)));
+const maxCols  = rows => rows.reduce((mx,r)=> Math.max(mx, r?r.length:0), 0);
+const A1COL = i => { let s='', x=i+1; while(x>0){ s = String.fromCharCode(65+(x-1)%26)+s; x=Math.floor((x-1)/26);} return s; };
+
+/* ---------- 貼上後的修補腳本（Apps Script） ---------- */
+// 剪貼簿只能帶格式，帶不動資料驗證；這段腳本在試算表裡跑一次，
+// 就能把姓名下拉、核取方塊、公式與欄寬補回來。
+function a1Ranges(rows, pred){
+  const out = [];
+  rows.forEach((row,r)=>{
+    if(!row) return;
+    let start = null;
+    for(let i=0;i<=row.length;i++){
+      const ok = i < row.length && row[i] && pred(row[i]);
+      if(ok && start === null) start = i;
+      if(!ok && start !== null){
+        out.push(start === i-1 ? A1COL(start)+(r+1)
+                               : A1COL(start)+(r+1)+':'+A1COL(i-1)+(r+1));
+        start = null;
+      }
+    }
+  });
+  return out;
+}
+function buildScript(){
+  const {rows, nameRange, nameList} = buildSheet();
+  const nameCells = a1Ranges(rows, c => c.cls==='pickname');
+  const tickCells = a1Ranges(rows, c => c.cls==='tick');
+  const dutyCells = a1Ranges(rows, c => c.cls==='pick');
+  const formulas = [];
+  rows.forEach((row,r)=>{ if(row) row.forEach((c,i)=>{
+    if(c && c.f) formulas.push([A1COL(i)+(r+1), '='+c.f]);   // setFormula 需要開頭的 =
+  }); });
+  const widths = [10,14,11,11,11,11,11,11,9,11,13,13];
+  const px = i => Math.round((widths[i] || 9) * 7 + 6);
+  const J = x => JSON.stringify(x);
+  return `/**
+ * 一線值班表：貼上 Google 試算表後執行這一個函式（只需跑一次）
+ * 擴充功能 → Apps Script → 把這段全部貼上 → 執行 → 第一次會要求授權
+ */
+function 修補值班表() {
+  const sh = SpreadsheetApp.getActiveSheet();
+  const names     = ${J(nameList)};
+  const nameCells = ${J(nameCells)};
+  const tickCells = ${J(tickCells)};
+  const dutyCells = ${J(dutyCells)};
+  const formulas  = ${J(formulas)};
+  const widths    = ${J(Array.from({length:maxCols(rows)}, (_,i)=>px(i)))};
+
+  // 1. 姓名欄：本月參與名單的下拉
+  if (names.length && nameCells.length) {
+    sh.getRangeList(nameCells).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(names, true).setAllowInvalid(false).build());
+  }
+  // 2. 月曆值班格：下拉來源＝上方姓名欄
+  if (dutyCells.length${nameRange ? '' : ' && false'}) {
+    sh.getRangeList(dutyCells).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInRange(sh.getRange(${J((nameRange||'').replace(/\$/g,''))}), true)
+        .setAllowInvalid(false).build());
+  }
+  // 3. 打勾矩陣：只有「OK」一個選項的下拉
+  //    想改成真正的核取方塊，把下面三行換成： sh.getRangeList(tickCells).insertCheckboxes();
+  if (tickCells.length) {
+    sh.getRangeList(tickCells).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(['OK'], true).setAllowInvalid(true).build());
+  }
+  // 4. 公式
+  formulas.forEach(function (f) { sh.getRange(f[0]).setFormula(f[1]); });
+  // 5. 欄寬
+  widths.forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+
+  try { SpreadsheetApp.getUi().alert('完成：下拉選單、公式與欄寬都補回來了。'); } catch (e) {}
+}`;
+}
+async function copyScript(){
+  const code = buildScript();
+  try{
+    await navigator.clipboard.writeText(code);
+    msg('已複製 Apps Script，到試算表「擴充功能 → Apps Script」貼上後執行');
+    return;
+  }catch(e){ /* 往下一層 */ }
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = code; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy'); ta.remove();
+    msg(ok ? '已複製 Apps Script，到試算表「擴充功能 → Apps Script」貼上後執行'
+           : '複製失敗，請改用下載 Excel', !ok);
+  }catch(e){ msg('複製失敗，請改用下載 Excel', true); }
+}
+
+function buildTsv(rows){                    // 純文字版（沒有底色，任何地方都能貼）
+  const w = maxCols(rows);
+  return rows.map(r=>{
+    const line = [];
+    for(let i=0;i<w;i++){
+      const c = r && r[i];
+      line.push(c && c.cls==='blocked' ? '×' : cellText(c));
+    }
+    return line.join('\t').replace(/\t+$/,'');
+  }).join('\n');
+}
+// HTML 版：Google 試算表貼上時會保留底色、粗體、對齊，"=" 開頭仍會被當成公式
+function buildHtmlTable(rows, blocks){
+  const w = maxCols(rows), hex = argb => argb ? '#'+argb.slice(2) : null;
+  const edges = (r,c) => {                       // 落在某個區塊邊緣就畫粗框
+    const out = [];
+    for(const b of (blocks||[])){
+      if(r<b.r0 || r>b.r1 || c<b.c0 || c>b.c1) continue;
+      if(r===b.r0) out.push('border-top:2px solid #8a9099');
+      if(r===b.r1) out.push('border-bottom:2px solid #8a9099');
+      if(c===b.c0) out.push('border-left:2px solid #8a9099');
+      if(c===b.c1) out.push('border-right:2px solid #8a9099');
+    }
+    return out;
+  };
+  let out = '<meta charset="utf-8"><table style="border-collapse:collapse">';
+  let r0 = -1;
+  for(const r of rows.length ? rows : [[]]){
+    r0++;
+    out += '<tr>';
+    for(let i=0;i<w;i++){
+      const c = r && r[i];
+      const st = ['border:1px solid #d8dce0', 'padding:3px 6px'];
+      let v = '';
+      if(c){
+        v = cellText(c);
+        const bg = hex(FILL[c.cls]); if(bg) st.push('background-color:'+bg);
+        const ink = hex(INK[c.cls]); if(ink) st.push('color:'+ink);
+        if(INK[c.cls] || c.cls==='head' || c.cls==='roundhead' || c.cls==='b' || c.cls==='code')
+          st.push('font-weight:bold');
+        if(c.cls==='title') st.push('font-weight:bold', 'font-size:15px');
+        if(c.cls==='note')  st.push('color:#6b7280', 'font-style:italic');
+        if(c.cls==='out')   st.push('color:#b0b5bb');
+        st.push('text-align:' + (c.cls==='name'||c.cls==='note'||c.cls==='title' ? 'left' : 'center'));
+      }
+      out += '<td style="' + st.concat(edges(r0, i)).join(';') + '">' + esc(v) + '</td>';
+    }
+    out += '</tr>';
+  }
+  return out + '</table>';
+}
+async function copySheet(){
+  const {rows, blocks} = buildSheet();
+  const tsv = buildTsv(rows), htm = buildHtmlTable(rows, blocks);
+  const okMsg = '已複製（含底色與公式），到 Google 試算表 A1 貼上';
+  try{
+    if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html':  new Blob([htm], {type:'text/html'}),
+        'text/plain': new Blob([tsv], {type:'text/plain'}),
+      })]);
+      msg(okMsg); return;
+    }
+  }catch(e){ /* 往下一層 */ }
+  try{
+    const handler = ev => {
+      ev.clipboardData.setData('text/html', htm);
+      ev.clipboardData.setData('text/plain', tsv);
+      ev.preventDefault();
+    };
+    const ta = document.createElement('textarea');
+    ta.value = ' '; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.addEventListener('copy', handler);
+    const ok = document.execCommand('copy');
+    document.removeEventListener('copy', handler);
+    ta.remove();
+    if(ok){ msg(okMsg); return; }
+  }catch(e){ /* 往下一層 */ }
+  try{ await navigator.clipboard.writeText(tsv); msg('已複製純文字（沒有底色），到 A1 貼上'); }
+  catch(e){ msg('複製失敗，請改用下載 Excel', true); }
+}
+function dl(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+function msg(t,bad){
+  const el=document.getElementById('msg');
+  el.textContent=t; el.className = bad?'bad':'ok';
+  setTimeout(()=>{ if(el.textContent===t) el.textContent=''; }, 6000);
+}
+
+document.getElementById('new-name').addEventListener('keydown', e=>{ if(e.key==='Enter') addDoc(); });
+render();
+</script>
+</body>
+</html>
