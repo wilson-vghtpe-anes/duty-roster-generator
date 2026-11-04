@@ -625,6 +625,7 @@ function buildSheet(){
   const HEAD = ['代號','姓名（抽籤填入）','W1-4','W5','W6','W7','W5 8F','W1-4 8F',
                 '班數','配額權重','想值日期','不值日期'];
   HEAD.forEach((t,i)=> put(HROW, i, t, {cls:'head'}));
+  CATS.forEach((ct,i)=> rows[HROW][2+i].fill = HEAD_FILL[ct.k]);   // 各班別表頭底色
 
   for(let i=0;i<n;i++){
     const r = R0+i, q = quotaOf(i), L = r+1;
@@ -657,7 +658,8 @@ function buildSheet(){
   r++;
   const mtxTop = r;
   put(r,0,'班別',{cls:'head'}); put(r,1,'',{cls:'head'});
-  rs.forEach((x,j)=> put(r, MC+j, x.short, {cls:'head'}));
+  const RFILL = {'W567':HEAD_FILL.w7, 'W5 8F':HEAD_FILL.f5, 'W1-4':HEAD_FILL.w14, '8F':HEAD_FILL.f14};
+  rs.forEach((x,j)=> put(r, MC+j, x.short, {cls:'head', fill:RFILL[x.short]}));
   r++;
   put(r,0,'',{cls:'roundhead'}); put(r,1,'',{cls:'roundhead'});
   rs.forEach((x,j)=> put(r, MC+j, 'Round '+x.no, {cls:'roundhead'}));
@@ -709,13 +711,16 @@ function buildSheet(){
 }
 
 /* ---------- 匯出 xlsx ---------- */
+// 各班別底色（配額表表頭、選班順序表頭、月曆共用）
+const HEAD_FILL = {w14:'FF94DDEC', w5:'FFB6D7A8', w6:'FFFFD966', w7:'FFFF0000',
+                   f5:'FFC27BA0', f14:'FFF1D6EC'};
 const FILL = {
   title:null, head:'FFF1F3F5', wt:'FFEFF4FA', name:null, in:'FFFFFDF0', code:'FFEFF4FA',
-  cW14:'FFEFF1F3', cW5:'FFFFEFC8', cW6:'FFDDEBF9', cW7:'FFFBD6D9',
+  cW14:HEAD_FILL.w14, cW5:HEAD_FILL.w5, cW6:HEAD_FILL.w6, cW7:HEAD_FILL.w7,
   pick:'FFFFFFFF', out:'FFF7F7F7', note:null, b:null, pickname:'FFFFF6D8',
   roundhead:'FFFFFF99', blocked:'FFB7B7B7', tick:'FFFFFFFF'
 };
-const INK = {cW14:'FF2C3238', cW5:'FF6F3F02', cW6:'FF0D456F', cW7:'FF8F1620'};
+const INK = {cW14:'FF000000', cW5:'FF000000', cW6:'FF000000', cW7:'FF000000'};   // 底色較深，字一律用黑
 async function exportXlsx(){
   if(!window.ExcelJS){ msg('ExcelJS 未載入（需連網），請改用「複製表格」貼到 Google Sheets', true); return; }
   const {rows, nameRange, nameList, blocks, title} = buildSheet();
@@ -739,7 +744,7 @@ async function exportXlsx(){
         horizontal:(cell.cls==='name'||cell.cls==='note'||cell.cls==='title') ? 'left' : 'center'};
       c.border = {top:{style:'thin',color:{argb:'FFD8DCE0'}},left:{style:'thin',color:{argb:'FFD8DCE0'}},
                   bottom:{style:'thin',color:{argb:'FFD8DCE0'}},right:{style:'thin',color:{argb:'FFD8DCE0'}}};
-      const fill = FILL[cell.cls];
+      const fill = cell.fill || FILL[cell.cls];
       if(fill) c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
       if(cell.cls==='title'){ c.font={bold:true, size:12}; c.border=undefined; }
       if(cell.cls==='head' || cell.cls==='b' || cell.cls==='code') c.font={bold:true};
@@ -905,7 +910,7 @@ function buildHtmlTable(rows, blocks){
       let v = '';
       if(c){
         v = cellText(c);
-        const bg = hex(FILL[c.cls]); if(bg) st.push('background-color:'+bg);
+        const bg = hex(c.fill || FILL[c.cls]); if(bg) st.push('background-color:'+bg);
         const ink = hex(INK[c.cls]); if(ink) st.push('color:'+ink);
         if(INK[c.cls] || c.cls==='head' || c.cls==='roundhead' || c.cls==='b' || c.cls==='code')
           st.push('font-weight:bold');
