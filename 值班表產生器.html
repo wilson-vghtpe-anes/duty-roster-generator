@@ -119,7 +119,6 @@
   </p>
   <div class="row" style="margin-bottom:12px">
     <label>月份 <input type="month" id="ym" onchange="setMonth(this.value)"></label>
-    <label><input type="checkbox" id="incAdj" onchange="S.incAdj=this.checked;save();render()"> 補齊週的前後月日期也要排班</label>
     <button class="mini" onclick="resetHolidays()">重設假日（只留週六日）</button>
   </div>
   <div class="row" style="margin-bottom:8px;font-size:12px">
@@ -218,7 +217,6 @@ let S = load() || {
   ovr:  {},       // 'YYYY-MM-DD' -> 'W1-4'|'W5'|'W6'|'W7'
   quota: null,    // [{w14,...}] 依代號索引
   ticks: {},      // 'round-代號' -> true（打勾矩陣）
-  incAdj: false,
 };
 function save(){ try{ localStorage.setItem('duty-gen', JSON.stringify(S)); }catch(e){} }
 function load(){
@@ -262,7 +260,7 @@ function autoCls(d){
   return isHoli(addDays(d,1)) ? 'W5' : 'W1-4';               // 隔天放假＝W5
 }
 const clsOf = d => S.ovr[key(d)] || autoCls(d);
-const schedDays = () => gridDays().filter(x => S.incAdj || x.inMonth);
+const schedDays = () => gridDays().filter(x => x.inMonth);       // 只排本月，前後月不排
 
 function counts(){
   const c = ZERO();
@@ -458,7 +456,6 @@ function bestOrder(){
 /* ---------- 畫面 ---------- */
 function render(){
   document.getElementById('ym').value = S.ym;
-  document.getElementById('incAdj').checked = !!S.incAdj;
   renderRoster(); renderCal(); renderQuota(); renderRound();
 }
 
@@ -691,13 +688,12 @@ function buildSheet(){
     put(rDuty,0,'值班', {cls:'calLbl'});
     put(rNight,0,'8F',  {cls:'calLbl'});
     wk.forEach((x,di)=>{
-      const ci = 1+di, cl = clsOf(x.date), sched = S.incAdj || x.inMonth;
+      const ci = 1+di, cl = clsOf(x.date);
       const d = x.date.getDate();
-      if(!x.inMonth){                                   // 前後月：整格灰底，日期寫 M/D
-        put(rD, ci, `${x.date.getMonth()+1}/${d}`, {cls:'gray'});
-        put(rDuty, ci, '', sched ? {cls:'pick', fill:FILL.gray} : {cls:'gray'});
-        const nightOk = sched && (cl==='W1-4' || cl==='W5');
-        put(rNight, ci, '', nightOk ? {cls:'pick', fill:FILL.gray} : {cls:'noNight'});
+      if(!x.inMonth){                                   // 前後月不排班：三格都是空白灰格
+        put(rD, ci, '', {cls:'gray'});
+        put(rDuty, ci, '', {cls:'gray'});
+        put(rNight, ci, '', {cls:'gray'});
         return;
       }
       put(rD, ci, d, {cls:'c'+cl.replace('-','')});     // 日期格依班別上色
