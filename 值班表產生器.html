@@ -680,30 +680,36 @@ function buildSheet(){
 
   /* --- 月曆 --- */
   r += 1;
-  put(r,0, `${y}年${m}月 班表`, {cls:'title'}); r++;
   const calTop = r;
-  put(r,0,'',{cls:'head'});
-  for(let i=0;i<7;i++) put(r, 1+i, DOW[(i+1)%7], {cls:'head'});
+  const CN = ['','一','二','三','四','五','六','七','八','九','十','十一','十二'];
+  put(r,0, `${CN[m]}月選班`, {cls:'calLbl'});
+  for(let i=0;i<7;i++) put(r, 1+i, DOW[(i+1)%7], {cls:'calDow'});
   r++;
   weeks.forEach((wk,wi)=>{
-    const rD=r, rC=r+1, rDuty=r+2, rNight=r+3;
-    put(rD,0, `第${wi+1}週`, {cls:'head'});
-    put(rC,0, '班別',       {cls:'head'});
-    put(rDuty,0,'一線值班', {cls:'head'});
-    put(rNight,0,'8F 夜班', {cls:'head'});
+    const rD=r, rDuty=r+1, rNight=r+2;
+    put(rD,0, `第${CN[wi+1]}週`, {cls:'calLbl'});
+    put(rDuty,0,'值班', {cls:'calLbl'});
+    put(rNight,0,'8F',  {cls:'calLbl'});
     wk.forEach((x,di)=>{
       const ci = 1+di, cl = clsOf(x.date), sched = S.incAdj || x.inMonth;
-      const style = 'c'+cl.replace('-','');
-      put(rD, ci, `${x.date.getMonth()+1}/${x.date.getDate()}`, {cls: sched?style:'out'});
-      put(rC, ci, sched?cl:'', {cls: sched?style:'out'});
-      put(rDuty, ci, '', {cls: sched?'pick':'out'});
-      const hasNight = sched && (cl==='W1-4' || cl==='W5');
-      put(rNight, ci, hasNight ? '' : (sched ? '—' : ''), {cls: hasNight?'pick':'out'});
+      const d = x.date.getDate();
+      if(!x.inMonth){                                   // 前後月：整格灰底，日期寫 M/D
+        put(rD, ci, `${x.date.getMonth()+1}/${d}`, {cls:'gray'});
+        put(rDuty, ci, '', sched ? {cls:'pick', fill:FILL.gray} : {cls:'gray'});
+        const nightOk = sched && (cl==='W1-4' || cl==='W5');
+        put(rNight, ci, '', nightOk ? {cls:'pick', fill:FILL.gray} : {cls:'noNight'});
+        return;
+      }
+      put(rD, ci, d, {cls:'c'+cl.replace('-','')});     // 日期格依班別上色
+      put(rDuty, ci, '', {cls:'pick'});
+      if(cl==='W1-4')    put(rNight, ci, '', {cls:'pick', fill:HEAD_FILL.f14});
+      else if(cl==='W5') put(rNight, ci, '', {cls:'pick', fill:HEAD_FILL.f5});
+      else               put(rNight, ci, '', {cls:'noNight'});   // 假日沒有 8F
     });
-    r += 4;
+    r += 3;
   });
 
-  blocks.push({r0:calTop, c0:0, r1:r-1, c1:7});                     // ③ 班表
+  blocks.push({r0:calTop, c0:0, r1:r-1, c1:7, grid:true});         // ③ 班表（全黑細框）                     // ③ 班表
 
   const nameRange = n ? `$B$${R0+1}:$B$${RE}` : null;      // 姓名欄（月曆下拉的來源）
   const nameList  = onNames();                            // 抽籤池（姓名欄下拉的來源）
@@ -714,13 +720,15 @@ function buildSheet(){
 // 各班別底色（配額表表頭、選班順序表頭、月曆共用）
 const HEAD_FILL = {w14:'FF94DDEC', w5:'FFB6D7A8', w6:'FFFFD966', w7:'FFFF0000',
                    f5:'FFC27BA0', f14:'FFF1D6EC'};
+const BOLD = new Set(['head','b','code','calLbl','calDow']);
+const LEFT = new Set(['name','note','title','calLbl']);
 const FILL = {
   title:null, head:'FFF1F3F5', wt:'FFEFF4FA', name:null, in:'FFFFFDF0', code:'FFEFF4FA',
   cW14:HEAD_FILL.w14, cW5:HEAD_FILL.w5, cW6:HEAD_FILL.w6, cW7:HEAD_FILL.w7,
   pick:'FFFFFFFF', out:'FFF7F7F7', note:null, b:null, pickname:'FFFFF6D8',
-  roundhead:'FFFFFF99', blocked:'FFB7B7B7', tick:'FFFFFFFF'
+  roundhead:'FFFFFF99', blocked:'FFB7B7B7', tick:'FFFFFFFF',
+  calLbl:'FFFFFF99', calDow:'FFFFFF99', gray:'FFB7B7B7', noNight:'FFBFBFBF'
 };
-const INK = {cW14:'FF000000', cW5:'FF000000', cW6:'FF000000', cW7:'FF000000'};   // 底色較深，字一律用黑
 async function exportXlsx(){
   if(!window.ExcelJS){ msg('ExcelJS 未載入（需連網），請改用「複製表格」貼到 Google Sheets', true); return; }
   const {rows, nameRange, nameList, blocks, title} = buildSheet();
@@ -741,16 +749,14 @@ async function exportXlsx(){
       const c = ws.getCell(r+1, ci+1);
       c.value = cell.f ? {formula:cell.f} : cell.v;
       c.alignment = {vertical:'middle',
-        horizontal:(cell.cls==='name'||cell.cls==='note'||cell.cls==='title') ? 'left' : 'center'};
+        horizontal:LEFT.has(cell.cls) ? 'left' : 'center'};
       c.border = {top:{style:'thin',color:{argb:'FFD8DCE0'}},left:{style:'thin',color:{argb:'FFD8DCE0'}},
                   bottom:{style:'thin',color:{argb:'FFD8DCE0'}},right:{style:'thin',color:{argb:'FFD8DCE0'}}};
       const fill = cell.fill || FILL[cell.cls];
       if(fill) c.fill = {type:'pattern', pattern:'solid', fgColor:{argb:fill}};
       if(cell.cls==='title'){ c.font={bold:true, size:12}; c.border=undefined; }
-      if(cell.cls==='head' || cell.cls==='b' || cell.cls==='code') c.font={bold:true};
+      if(BOLD.has(cell.cls)) c.font={bold:true};
       if(cell.cls==='note'){ c.font={italic:true, color:{argb:'FF6B7280'}}; c.border=undefined; }
-      if(cell.cls==='out') c.font={color:{argb:'FFB0B5BB'}};
-      if(INK[cell.cls]) c.font = {color:{argb:INK[cell.cls]}, bold:true};
       if(cell.cls==='pick' && nameRange)                       // 值班格：選姓名
         c.dataValidation = {type:'list', allowBlank:true, formulae:[nameRange]};
       if(cell.cls==='pickname' && nameDV)                     // 代號的姓名：抽籤結果下拉
@@ -762,7 +768,13 @@ async function exportXlsx(){
   });
   // 三個區塊各自加外框
   const MED = {style:'medium', color:{argb:'FF8A9099'}};
+  const BLK = {style:'thin', color:{argb:'FF000000'}};
   for(const b of blocks){
+    if(b.grid){                                        // 月曆：每格黑色細框
+      for(let rr=b.r0; rr<=b.r1; rr++) for(let ci=b.c0; ci<=b.c1; ci++)
+        ws.getCell(rr+1, ci+1).border = {top:BLK, left:BLK, bottom:BLK, right:BLK};
+      continue;
+    }
     for(let ci=b.c0; ci<=b.c1; ci++){
       const t = ws.getCell(b.r0+1, ci+1), bt = ws.getCell(b.r1+1, ci+1);
       t.border  = Object.assign({}, t.border,  {top:MED});
@@ -892,6 +904,7 @@ function buildHtmlTable(rows, blocks){
     const out = [];
     for(const b of (blocks||[])){
       if(r<b.r0 || r>b.r1 || c<b.c0 || c>b.c1) continue;
+      if(b.grid){ out.push('border:1px solid #000'); continue; }
       if(r===b.r0) out.push('border-top:2px solid #8a9099');
       if(r===b.r1) out.push('border-bottom:2px solid #8a9099');
       if(c===b.c0) out.push('border-left:2px solid #8a9099');
@@ -911,13 +924,10 @@ function buildHtmlTable(rows, blocks){
       if(c){
         v = cellText(c);
         const bg = hex(c.fill || FILL[c.cls]); if(bg) st.push('background-color:'+bg);
-        const ink = hex(INK[c.cls]); if(ink) st.push('color:'+ink);
-        if(INK[c.cls] || c.cls==='head' || c.cls==='roundhead' || c.cls==='b' || c.cls==='code')
-          st.push('font-weight:bold');
+        if(BOLD.has(c.cls) || c.cls==='roundhead') st.push('font-weight:bold');
         if(c.cls==='title') st.push('font-weight:bold', 'font-size:15px');
         if(c.cls==='note')  st.push('color:#6b7280', 'font-style:italic');
-        if(c.cls==='out')   st.push('color:#b0b5bb');
-        st.push('text-align:' + (c.cls==='name'||c.cls==='note'||c.cls==='title' ? 'left' : 'center'));
+        st.push('text-align:' + (LEFT.has(c.cls) ? 'left' : 'center'));
       }
       out += '<td style="' + st.concat(edges(r0, i)).join(';') + '">' + esc(v) + '</td>';
     }
