@@ -605,7 +605,7 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, m=>({'&':'&amp;'
 /* ---------- 產生工作表資料（xlsx / 複製共用） ---------- */
 function buildSheet(){
   const [y,m] = S.ym.split('-').map(Number);
-  const c = counts(), n = nOn(), target = n ? totalWeight(c)/n : 0;
+  const c = counts(), n = nOn();
   const days = gridDays();
   const weeks = []; for(let i=0;i<days.length;i+=7) weeks.push(days.slice(i,i+7));
 
@@ -645,13 +645,11 @@ function buildSheet(){
   CATS.forEach((ct,j)=> put(RE+1, 2+j, c[ct.k], {cls:'head'}));
   put(RE+1,8, CATS.reduce((s,ct)=>s+c[ct.k],0), {cls:'head'});
   put(RE+1,9, round2(totalWeight(c)), {cls:'head'});
-  put(RE+2,0, `每人目標權重 ${round2(target)}（總權重 ${round1(totalWeight(c))} ÷ ${n} 人）`, {cls:'note'});
-  put(RE+3,0, `本月參與抽籤（${n} 人）：` + (onNames().join('、') || '—'), {cls:'note'});
 
   const blocks = [{r0:WROW, c0:0, r1:RE+1, c1:11}];     // ① 權重分配
 
   /* --- 選班順序：打勾矩陣 --- */
-  let r = RE+5;
+  let r = RE+3;                                   // 和上表之間空一列
   const rs = roundList();
   const MC = 2;                                   // 輪次欄從第 3 欄（C）開始
   put(r,0,'選班順序（輪到自己選完班就勾起來）',{cls:'title'});
@@ -772,7 +770,6 @@ async function exportXlsx(){
     }
   }
   ws.getRow(1).height = 22;
-  ws.views = [{state:'frozen', ySplit:4}];
   const buf = await wb.xlsx.writeBuffer();
   dl(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
      `一線值班_${S.ym}.xlsx`);
