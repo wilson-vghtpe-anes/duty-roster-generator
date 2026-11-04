@@ -716,6 +716,8 @@ function buildSheet(){
 // 各班別底色（配額表表頭、選班順序表頭、月曆共用）
 const HEAD_FILL = {w14:'FF94DDEC', w5:'FFB6D7A8', w6:'FFFFD966', w7:'FFFF0000',
                    f5:'FFC27BA0', f14:'FFF1D6EC'};
+// 欄寬：A–H 是月曆（標籤欄＋星期一到日），八欄一樣寬
+const COL_W = [14,14,14,14,14,14,14,14,9,11,13,13];
 const BOLD = new Set(['head','b','code','calLbl','calDow']);
 const LEFT = new Set(['name','note','title','calLbl']);
 const FILL = {
@@ -730,7 +732,7 @@ async function exportXlsx(){
   const {rows, nameRange, nameList, blocks, title} = buildSheet();
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(title+'選班');
-  const widths = [10,14,11,11,11,11,11,11,9,11,13,13];
+  const widths = COL_W;
   // 姓名欄的下拉＝本月參與名單（名字太多或含逗號就不做驗證，改直接手打）
   const nameOpt = nameList.join(',');
   const nameDV = (nameList.length && nameOpt.length <= 250 && !nameList.some(x=>x.includes(',')))
@@ -823,7 +825,7 @@ function buildScript(){
   rows.forEach((row,r)=>{ if(row) row.forEach((c,i)=>{
     if(c && c.f) formulas.push([A1COL(i)+(r+1), '='+c.f]);   // setFormula 需要開頭的 =
   }); });
-  const widths = [10,14,11,11,11,11,11,11,9,11,13,13];
+  const widths = COL_W;
   const px = i => Math.round((widths[i] || 9) * 7 + 6);
   const J = x => JSON.stringify(x);
   return `/**
