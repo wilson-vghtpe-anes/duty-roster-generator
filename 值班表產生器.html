@@ -136,7 +136,8 @@
   <h2><span class="step">3</span>各代號的班數配額</h2>
   <p class="hint">
     權重：W1-4 一線 1、W5 一線 1.5、W6/W7 一線 2.5、W5 8F 0.5、W1-4 8F 0.3。
-    平日有一線＋8樓夜班，假日只有一線。配額可手動修改，合計列會即時檢核。
+    平日有一線＋8樓夜班，假日只有一線。配額可手動修改，合計列會即時檢核。<br>
+    自動分配的優先順序：① W567 一線（W5＋W6＋W7）班數每人最多差 1 班 → ② 週五班（W5、W5 8F）每人最多差 1 班 → ③ 權重盡量貼近平均。
   </p>
   <div class="stats" id="stats"></div>
   <div class="scroll" style="margin-top:14px">
@@ -152,10 +153,13 @@
 <div class="card">
   <h2><span class="step">4</span>選班順序與匯出</h2>
   <p class="hint">
-    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過），方向逐輪交替。
+    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。方向預設逐輪交替，
+    但不強制——如果某幾輪不反轉能讓各代號更接近，就會改成同方向。
+    W567、W1-4 的第一輪各自由 A 和末位代號中「該班別班數較多」的那個先選（一樣多就不限），
+    而且兩組第一輪盡量反向：W567 第一個選的代號，到 W1-4 第一輪會是最後一個選。
     每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
     （＝你在意的任何一天，這時候還沒被選走的機率）；每個代號的分數是它所有選班次的加權平均，
-    灰格沒得選就不計分，所以分數與班數多寡無關。
+    灰格沒得選就不計分，所以分數與班數多寡無關。W1-4 8F 夜班值哪天差別不大，不列入分數。
     因為代號是抽籤抽到的，只要讓<b>各代號的分數盡量接近</b>，抽到哪個都一樣公平。
   </p>
   <div class="row" style="margin-bottom:12px">
@@ -216,6 +220,7 @@ let S = load() || {
   holi: {},       // 'YYYY-MM-DD' -> true/false（未列出者依週六日預設）
   ovr:  {},       // 'YYYY-MM-DD' -> 'W1-4'|'W5'|'W6'|'W7'
   quota: null,    // [{w14,...}] 依代號索引
+  dirs:  null,    // [true=A→末位, false=末位→A] 每輪方向；null＝逐輪交替
   ticks: {},      // 'round-代號' -> true（打勾矩陣）
 };
 function save(){ try{ localStorage.setItem('duty-gen', JSON.stringify(S)); }catch(e){} }
@@ -232,7 +237,7 @@ function nextMonth(){
 }
 const nOn = () => S.roster.filter(r => r.on).length;
 const onNames = () => S.roster.filter(r => r.on).map(r => r.name);
-function resetQuota(){ S.quota = null; S.ticks = {}; }
+function resetQuota(){ S.quota = null; S.dirs = null; S.ticks = {}; }
 
 /* ---------- 日期 ---------- */
 const pad = n => String(n).padStart(2,'0');
@@ -276,37 +281,120 @@ const totalWeight = c => CATS.reduce((s,ct)=> s + c[ct.k]*WT[ct.k], 0);
 const rowWeight   = q => CATS.reduce((s,ct)=> s + (q[ct.k]||0)*WT[ct.k], 0);
 const rowShifts   = q => CATS.reduce((s,ct)=> s + (q[ct.k]||0), 0);
 const quotaOf = i => (S.quota && S.quota[i]) ? S.quota[i] : ZERO();
+const FRI = ['w5','f5'];                                 // 「週五班」：W5 一線＋W5 8F
+const friCount = q => FRI.reduce((s,k)=> s + (q[k]||0), 0);
+const W567 = ['w5','w6','w7'];                           // 一線的 W5／W6／W7
+const w567Count = q => W567.reduce((s,k)=> s + (q[k]||0), 0);
 
 /* ---------- 配額分配 ---------- */
-// 每班別先平均分（取整），餘數給目前權重缺口最大的代號；再以轉移／交換微調把總權重拉近平均。
+// 優先順序：
+//   1. W567 一線（W5＋W6＋W7）班數每人最多差 1 班
+//   2. 週五班（W5、W5 8F 各自，以及兩者合計）每人最多差 1 班
+//   3. 每人權重和平均的最大差距盡量小；同樣差距下再讓整體平方和最小
+// 其他班別每人限平均 ±1 班內。
+const span = (v, a) => v < Math.floor(a) ? Math.floor(a) - v : v > Math.ceil(a) ? v - Math.ceil(a) : 0;  // 超出平均取整上下限幾班
 function calcQuota(){
   const n = nOn(); if(!n) return [];
   const c = counts(), target = totalWeight(c)/n;
+  // 精確搜尋（有時間上限）和「貪婪＋微調」各算一組，取最大權重差距較小的
+  const maxDev = q => Math.max(...q.map(x => Math.abs(rowWeight(x)-target)));
+  const g = greedyQuota(c, n, target); balanceQuota(g, c, target);
+  const e = exactQuota(c, n, target);
+  if(!e) return g;
+  balanceQuota(e, c, target);
+  return maxDev(e) <= maxDev(g) + 1e-9 ? e : g;
+}
+// 精確搜尋：列出每個人「可能的配額組合」，由小到大試最大權重差距門檻，
+// 第一個能湊滿本月所有班的門檻就是最佳解。
+function exactQuota(c, n, target){
+  const K = CATS.map(ct => ct.k);
+  const avg567 = W567.reduce((s,k)=> s + c[k], 0)/n, friAvg = FRI.reduce((s,k)=> s + c[k], 0)/n;
+  const rows = [], x = ZERO();
+  (function rec(i){
+    if(i === K.length){
+      if(span(w567Count(x), avg567)) return;
+      if(span(friCount(x), friAvg)) return;
+      rows.push({q:{...x}, d:Math.abs(rowWeight(x)-target)});
+      return;
+    }
+    const k = K[i], a = c[k]/n, slack = FRI.includes(k) ? 0 : 1;
+    for(let v = Math.max(0, Math.floor(a)-slack); v <= Math.ceil(a)+slack; v++){ x[k] = v; rec(i+1); }
+  })(0);
+  rows.sort((p,r)=> p.d - r.d);
+
+  // 門檻越寬一定越容易湊滿，所以用二分搜尋找最小可行門檻；
+  // 超過時間上限的檢查當作不可行（結果仍合規，只是可能不是最佳）。
+  const deadline = Date.now() + 150;
+  const fits = lim => {
+    const R = rows.filter(r => r.d <= lim + 1e-9), L = R.length;
+    // 剪枝用：R[i..] 之中各班別的最小／最大值
+    const mn = Array.from({length:L+1}, ()=> ({})), mx = Array.from({length:L+1}, ()=> ({}));
+    K.forEach(k => { mn[L][k] = Infinity; mx[L][k] = -Infinity; });
+    for(let i=L-1; i>=0; i--) K.forEach(k => {
+      mn[i][k] = Math.min(mn[i+1][k], R[i].q[k]); mx[i][k] = Math.max(mx[i+1][k], R[i].q[k]);
+    });
+    const rem = {...c}, pick = [], dead = new Set();
+    let steps = 0;
+    const dfs = (start, left) => {
+      if((++steps & 1023) === 0 && Date.now() > deadline) throw 0;
+      if(!left) return K.every(k => rem[k] === 0);
+      if(start >= L || K.some(k => rem[k] < left*mn[start][k] || rem[k] > left*mx[start][k])) return false;
+      const key = start+'|'+left+'|'+K.map(k => rem[k]).join(',');
+      if(dead.has(key)) return false;
+      for(let i=start; i<L; i++){
+        const r = R[i].q;
+        if(K.some(k => r[k] > rem[k])) continue;
+        K.forEach(k => rem[k] -= r[k]); pick.push(r);
+        if(dfs(i, left-1)) return true;
+        K.forEach(k => rem[k] += r[k]); pick.pop();
+      }
+      dead.add(key); return false;
+    };
+    try{ return dfs(0, n) ? pick.map(r => ({...r})) : null; }catch(e){ return null; }
+  };
+  const ds = [...new Set(rows.map(r => r.d))];
+  let lo = 0, hi = ds.length - 1, best = null;
+  while(lo <= hi){
+    const mid = (lo + hi) >> 1, q = fits(ds[mid]);
+    if(q){ best = q; hi = mid - 1; } else lo = mid + 1;
+  }
+  return best;
+}
+// 貪婪：每班別先平均分（取整），餘數先給 W567／週五班拿得少的人，再給權重低的人。
+// 這樣分出來 W567 與週五班一定每人只差 1 班。
+function greedyQuota(c, n, target){
   const q = Array.from({length:n}, ZERO);
   for(const ct of [...CATS].sort((a,b)=> WT[b.k]-WT[a.k])){
     const cnt = c[ct.k], base = Math.floor(cnt/n), rem = cnt % n;
     q.forEach(x => x[ct.k] = base);
     const rank = q.map((x,i)=>i).sort((a,b)=>{
-      const ga = target - rowWeight(q[a]), gb = target - rowWeight(q[b]);
-      if(Math.abs(ga-gb) > 1e-9) return gb-ga;
-      return rowShifts(q[a]) - rowShifts(q[b]);
+      if(W567.includes(ct.k) && w567Count(q[a]) !== w567Count(q[b])) return w567Count(q[a]) - w567Count(q[b]);
+      // W5 8F 的餘數先給 W5 拿得少的人，讓「週五班」（W5＋W5 8F）合計也平均
+      if(ct.k === 'f5' && q[a].w5 !== q[b].w5) return q[a].w5 - q[b].w5;
+      return rowWeight(q[a]) - rowWeight(q[b]);
     });
     for(let i=0;i<rem;i++) q[rank[i]][ct.k]++;
   }
-  balanceQuota(q, c, target);
   return q;
 }
+// 轉移／交換微調：不能讓 W567、週五班變不平均，也不能讓最大權重差距變大，只把平方和再壓低
 function balanceQuota(q, c, target){
   const n = q.length;
-  const avgShifts = CATS.reduce((s,ct)=> s + c[ct.k], 0)/n;
+  const avg567 = W567.reduce((s,k)=> s + c[k], 0)/n;
   const lo = {}, hi = {}, avg = {};
   CATS.forEach(ct => {
     avg[ct.k] = c[ct.k]/n;
     lo[ct.k] = Math.max(0, Math.floor(avg[ct.k]) - 1);
     hi[ct.k] = Math.ceil(avg[ct.k]) + 1;
   });
+  const friAvg = FRI.reduce((s,k)=> s + c[k], 0)/n;
+  const lim = Math.max(...q.map(x => Math.abs(rowWeight(x)-target)));
   const cost = () => q.reduce((s,x)=>{
-    let v = Math.pow(rowWeight(x)-target, 2) + 0.06*Math.pow(rowShifts(x)-avgShifts, 2);
+    const d = Math.abs(rowWeight(x)-target);
+    let v = 1000*span(w567Count(x), avg567)
+          + 100*(span(x.w5, avg.w5) + span(x.f5, avg.f5) + span(friCount(x), friAvg))
+          + 1000*Math.max(0, d - lim - 1e-9)
+          + d*d;
     CATS.forEach(ct => v += 0.03*Math.pow((x[ct.k]||0)-avg[ct.k], 2));
     return s+v;
   }, 0);
@@ -343,28 +431,61 @@ function setQuota(i,k,v){
   if(!S.quota) S.quota = calcQuota();
   if(!S.quota[i]) return;
   S.quota[i][k] = Math.max(0, parseInt(v)||0);
-  S.ticks = {}; save(); renderQuota(); renderRound();
+  S.dirs = null; S.ticks = {}; save(); renderQuota(); renderRound();
 }
 
 /* ---------- Round 選班順序 ---------- */
 // 每個班別分成數輪，第 r 輪由「該班別配額 ≥ r」的代號參加（配額用完的代號該輪蓋掉）。
-// 方向逐輪反轉：上一輪最後選的，下一輪先選。
+// 每一輪的方向（A→末位 或 末位→A）各自決定，不必逐輪交替。預設是交替（上一輪最後選的，下一輪先選），
+// 但 W567、W1-4 的第一輪從 A／末位中該班別班數較多的那個開始，且兩組第一輪盡量反向；
+// 按「讓各代號的可挑比例最接近」時，會連同代號配對一起找差距最小的方向組合。
 const RGROUPS = [
   {short:'W567',  name:'W5 / W6 / W7 一線', keys:['w5','w6','w7']},
   {short:'W5 8F', name:'W5 8F 夜班',        keys:['f5']},   // 先把和週五（隔天放假）相關的選完
   {short:'W1-4',  name:'W1-4 一線',         keys:['w14']},
-  {short:'8F',    name:'W1-4 8F 夜班',      keys:['f14']},
+  {short:'8F',    name:'W1-4 8F 夜班',      keys:['f14']},   // 不計入公平性分數
 ];
+const groupQ = (Q, g) => Q.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
+// 總輪數＝各班別最大配額的和；配額怎麼換到別的代號，輪數都不變
+const nRounds = Q => RGROUPS.reduce((s,g)=> s + Math.max(0, ...groupQ(Q,g)), 0);
+const altDirs = R => Array.from({length:R}, (_,i)=> i%2 === 0);
+// 第一輪起點：W567、W1-4 的第一輪各自從「A 和末位代號中，該班別班數較多的那個」開始選（一樣多就不限）；
+// 另外兩組第一輪盡量反向：W567 第一個選的人，到 W1-4 第一輪變成最後一個選。
+const firstRound = (Q, short) => {
+  let i = 0;
+  for(const g of RGROUPS){
+    const m = Math.max(0, ...groupQ(Q,g));
+    if(g.short === short) return m ? i : -1;
+    i += m;
+  }
+  return -1;
+};
+const firstPair = Q => [firstRound(Q,'W567'), firstRound(Q,'W1-4')];
+const pairOk = (d, p) => p[0] < 0 || p[1] < 0 || d[p[0]] !== d[p[1]];
+// 該班別 A 比末位多 → 1（A 先選）；少 → -1（末位先選）；一樣 → 0（不限）
+const startSide = (a, z) => a > z ? 1 : a < z ? -1 : 0;
+const startOk = (fwd, side) => !side || fwd === (side > 0);
+const defaultDirs = Q => {                      // 逐輪交替，再把兩組第一輪的起點翻到對的一邊
+  const d = altDirs(nRounds(Q)), p = firstPair(Q), A = Q[0], Z = Q[Q.length-1];
+  const fix = (i, want) => { if(i >= 0 && d[i] !== want) for(let j=i; j<d.length; j++) d[j] = !d[j]; };
+  const s0 = startSide(w567Count(A), w567Count(Z)), s1 = startSide(A.w14||0, Z.w14||0);
+  if(s0) fix(p[0], s0 > 0);
+  if(p[1] >= 0) fix(p[1], s1 ? s1 > 0 : (p[0] >= 0 ? !d[p[0]] : d[p[1]]));
+  return d;
+};
+const dirsOf  = Q => (Array.isArray(S.dirs) && S.dirs.length === nRounds(Q)) ? S.dirs : defaultDirs(Q);
+const nBreaks = d => d.reduce((s,x,i)=> s + (i && x === d[i-1] ? 1 : 0), 0);   // 沒有反轉的輪數
+
 function roundList(){
   const n = nOn(); if(!n || !S.quota) return [];
+  const dirs = dirsOf(S.quota);
   const out = []; let i = 0;
   for(const g of RGROUPS){
-    const q = S.quota.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
+    const q = groupQ(S.quota, g);
     const maxR = Math.max(0, ...q);
     for(let r=1; r<=maxR; r++){
       const join = q.map((v,j)=>j).filter(j => q[j] >= r);
-      if(!join.length) continue;
-      const fwd = i%2 === 0;
+      const fwd = dirs[i];
       const seq = fwd ? join : [...join].reverse();
       out.push({
         no: ++i, short:g.short, cat:g.name, fwd, seq,
@@ -382,70 +503,145 @@ function roundList(){
 // 該班別共 T 班、輪到你前已被選走 t 班，剩餘比例 (T-t)/T 就是
 // 「你在意的任何一天這時候還沒被選走」的機率——不需要假設在意幾天。
 // 每個代號的分數 = 它所有選班次的加權平均（灰格沒得選，不計分也不佔名額）。
-// 搶手度沿用班別權重：假日班最需要挑日期，8F 夜班值哪天差別最小。
-const RVAL = {'W567':2.5, 'W1-4':1, 'W5 8F':0.5, '8F':0.3};
-const avail = (t, T) => T > 0 ? (T-t)/T : 0;
-function scoreOrder(Q){
-  const n = Q.length, num = new Array(n).fill(0), den = new Array(n).fill(0);
-  let gi = 0;
-  for(const g of RGROUPS){
-    const v = RVAL[g.short] || 1;
-    const q = Q.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
-    const maxR = Math.max(0, ...q), T = q.reduce((a,b)=> a+b, 0);
-    let t = 0;
-    for(let r=1; r<=maxR; r++){
-      const idx = []; for(let i=0;i<n;i++) if(q[i] >= r) idx.push(i);
-      if(!idx.length) continue;
-      const fwd = gi%2 === 0; gi++;
-      const seq = fwd ? idx : idx.reverse();
-      for(const i of seq){ num[i] += v * avail(t, T); den[i] += v; t++; }
-    }
-  }
-  return num.map((x,i)=> den[i] ? x/den[i] : 0);
-}
-const oppScore = () => S.quota ? scoreOrder(S.quota) : [];
-
-// 把已算好的配額組合重新配到代號上，讓各代號的可挑比例差距最小
-function optimize(){
-  const n = S.quota ? S.quota.length : 0; if(n < 2) return;
-  const base = S.quota;
-  const cost = order => {
-    const sc = scoreOrder(order.map(i => base[i]));
-    const mean = sc.reduce((a,b)=>a+b,0)/n;
-    return (Math.max(...sc) - Math.min(...sc))
-         + 0.001*sc.reduce((a,b)=> a + (b-mean)*(b-mean), 0)/n;
-  };
-  let best = base.map((x,i)=>i), bestC = cost(best);
-  const try_ = ord => { const c = cost(ord); if(c < bestC - 1e-12){ bestC = c; best = [...ord]; } };
-
-  if(n <= 8){                                       // 全排列窮舉（8! = 40320）
-    const a = base.map((x,i)=>i), cnt = new Array(n).fill(0);
-    let i = 0;
-    while(i < n){
-      if(cnt[i] < i){
-        const j = i%2 ? cnt[i] : 0;
-        [a[i],a[j]] = [a[j],a[i]];
-        try_(a); cnt[i]++; i = 0;
-      } else { cnt[i] = 0; i++; }
-    }
-  } else {                                          // 人多時：隨機重啟 + 兩兩交換爬山
-    for(let rs=0; rs<80; rs++){
-      const ord = base.map((x,i)=>i);
-      for(let i=n-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [ord[i],ord[j]]=[ord[j],ord[i]]; }
-      let cur = cost(ord), moved = true;
-      while(moved){
-        moved = false;
-        for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
-          [ord[i],ord[j]] = [ord[j],ord[i]];
-          const c2 = cost(ord);
-          if(c2 < cur - 1e-12){ cur = c2; moved = true; }
-          else [ord[i],ord[j]] = [ord[j],ord[i]];
+// 搶手度沿用班別權重：假日班最需要挑日期。W1-4 8F 夜班值哪天差別最小，不計分（方向就維持交替）。
+const RVAL = {'W567':2.5, 'W1-4':1, 'W5 8F':0.5, '8F':0};
+// 回傳 (order, dirs) => 各代號分數；第 i 個代號拿 base[order[i]] 那組配額。
+// 窮舉排列時會呼叫幾萬次，所以先把各班別配額算好、迴圈裡不配置新陣列。
+function makeScorer(base){
+  const n = base.length;
+  const G = RGROUPS.map(g => groupQ(base, g));
+  const T = G.map(a => a.reduce((x,y)=> x+y, 0)), M = G.map(a => Math.max(0, ...a));
+  const V = RGROUPS.map(g => RVAL[g.short] ?? 1);
+  const num = new Float64Array(n), den = new Float64Array(n);
+  const run = (order, dirs) => {
+    num.fill(0); den.fill(0);
+    let ri = 0;
+    for(let g=0; g<G.length; g++){
+      const q = G[g], v = V[g], tot = T[g];
+      if(!v){ ri += M[g]; continue; }
+      let t = 0;
+      for(let r=1; r<=M[g]; r++){
+        const fwd = dirs[ri++];
+        for(let s=0; s<n; s++){
+          const i = fwd ? s : n-1-s;
+          if(q[order[i]] < r) continue;
+          num[i] += v * (tot - t)/tot; den[i] += v; t++;
         }
       }
-      try_(ord);
     }
+  };
+  const score = (order, dirs) => { run(order, dirs); return Array.from(num, (x,i)=> den[i] ? x/den[i] : 0); };
+  // 差距（最大－最小）＋ 0.001 × 變異數；直接在 num 上算，不配置陣列
+  score.spread = (order, dirs) => {
+    run(order, dirs);
+    let mx = -Infinity, mn = Infinity, sum = 0, sq = 0;
+    for(let i=0;i<n;i++){
+      const x = den[i] ? num[i]/den[i] : 0;
+      if(x > mx) mx = x; if(x < mn) mn = x; sum += x; sq += x*x;
+    }
+    const mean = sum/n;
+    return (mx - mn) + 0.001*(sq/n - mean*mean);
+  };
+  return score;
+}
+const identity = n => Array.from({length:n}, (_,i)=> i);
+const oppScore = () => {
+  if(!S.quota) return [];
+  return makeScorer(S.quota)(identity(S.quota.length), dirsOf(S.quota));
+};
+
+// 把已算好的配額組合重新配到代號上，並決定每輪方向，讓各代號的可挑比例差距最小。
+// 不反轉要「換到」至少 BREAK_COST 的差距改善才划算，否則維持逐輪交替。
+const BREAK_COST = 0.002;
+function optimize(){
+  const n = S.quota ? S.quota.length : 0;
+  S.dirs = null;
+  if(n < 2) return;
+  const base = S.quota, score = makeScorer(base), R = nRounds(base);
+  const pair = firstPair(base);
+  const q567 = base.map(w567Count), q14 = base.map(x => x.w14||0);
+  // 懲罰項遠大於任何差距，等同硬性條件：起點規則（2）優先於兩組反向（1）
+  const cost = (ord, dirs) => {
+    const a = ord[0], z = ord[n-1];
+    let v = score.spread(ord, dirs) + BREAK_COST*nBreaks(dirs);
+    if(pair[0] >= 0 && !startOk(dirs[pair[0]], startSide(q567[a], q567[z]))) v += 2;
+    if(pair[1] >= 0 && !startOk(dirs[pair[1]], startSide(q14[a], q14[z])))   v += 2;
+    if(!pairOk(dirs, pair)) v += 1;
+    return v;
+  };
+
+  // 固定方向，找最好的代號配對
+  const permSearch = dirs => {
+    let best = identity(n), bestC = cost(best, dirs);
+    if(n <= 8){                                     // 全排列窮舉（8! = 40320）
+      const a = identity(n), cnt = new Array(n).fill(0);
+      let i = 0;
+      while(i < n){
+        if(cnt[i] < i){
+          const j = i%2 ? cnt[i] : 0;
+          [a[i],a[j]] = [a[j],a[i]];
+          const c = cost(a, dirs);
+          if(c < bestC - 1e-12){ bestC = c; best = [...a]; }
+          cnt[i]++; i = 0;
+        } else { cnt[i] = 0; i++; }
+      }
+    } else {                                        // 人多時：隨機重啟 + 兩兩交換爬山
+      for(let rs=0; rs<30; rs++){
+        const ord = identity(n);
+        for(let i=n-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [ord[i],ord[j]]=[ord[j],ord[i]]; }
+        let cur = cost(ord, dirs), moved = true;
+        while(moved){
+          moved = false;
+          for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+            [ord[i],ord[j]] = [ord[j],ord[i]];
+            const c2 = cost(ord, dirs);
+            if(c2 < cur - 1e-12){ cur = c2; moved = true; }
+            else [ord[i],ord[j]] = [ord[j],ord[i]];
+          }
+        }
+        if(cur < bestC - 1e-12){ bestC = cur; best = [...ord]; }
+      }
+    }
+    return {ord:best, dirs, c:bestC};
+  };
+  // 固定代號配對，逐一（或兩兩）翻轉各輪方向爬山
+  const dirSearch = (ord, d0) => {
+    const d = [...d0];
+    let cur = cost(ord, d), moved = true;
+    while(moved){
+      moved = false;
+      for(let i=0;i<R;i++){
+        d[i] = !d[i];
+        const c1 = cost(ord, d);
+        if(c1 < cur - 1e-12){ cur = c1; moved = true; continue; }
+        let hit = false;
+        for(let j=i+1;j<R && !hit;j++){
+          d[j] = !d[j];
+          const c2 = cost(ord, d);
+          if(c2 < cur - 1e-12){ cur = c2; hit = moved = true; }
+          else d[j] = !d[j];
+        }
+        if(!hit) d[i] = !d[i];
+      }
+    }
+    return {ord, dirs:d, c:cur};
+  };
+
+  const starts = [defaultDirs(base)];
+  for(let k=0; k<3; k++) starts.push(Array.from({length:R}, ()=> Math.random() < 0.5));
+  let best = null;
+  for(const d0 of starts){
+    let cur = permSearch(d0);
+    for(let it=0; it<6; it++){
+      const d = dirSearch(cur.ord, cur.dirs);
+      if(d.c >= cur.c - 1e-12) break;
+      const p = permSearch(d.dirs);
+      cur = p.c < d.c ? p : d;
+    }
+    if(!best || cur.c < best.c - 1e-12) best = cur;
   }
-  S.quota = best.map(i => base[i]);
+  S.quota = best.ord.map(i => base[i]);
+  S.dirs  = best.dirs;
   S.ticks = {};
 }
 function bestOrder(){
