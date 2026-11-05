@@ -163,6 +163,7 @@
     但不強制——如果某幾輪不反轉能讓各代號更接近，就會改成同方向。
     Round 1 一定由 A 開始選。W567、W1-4 的第一輪各自由 A 和末位代號中「該班別班數較多」的那個先選（一樣多就不限），
     而且兩組第一輪盡量反向：W567 第一個選的代號，到 W1-4 第一輪會是最後一個選。
+    自動配對代號時，W567 權重（W5×1.5＋W6×2.5＋W7×2.5）高的排在 A 這側、W1-4 班數多的排在末位那側。
     每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
     （＝你在意的任何一天，這時候還沒被選走的機率）；每個代號的分數是它所有選班次的加權平均，
     灰格沒得選就不計分，所以分數與班數多寡無關。W1-4 8F 夜班值哪天差別不大，不列入分數。
@@ -568,6 +569,8 @@ const oppScore = () => {
 // 把已算好的配額組合重新配到代號上，並決定每輪方向，讓各代號的可挑比例差距最小。
 // 不反轉要「換到」至少 BREAK_COST 的差距改善才划算，否則維持逐輪交替。
 const BREAK_COST = 0.002;
+// 自動配對時：W567 權重高的排 A 這側、W1-4 班數多的排末位那側。每多一對順序顛倒就加 SORT_COST。
+const SORT_COST = 0.05;
 function optimize(keepOrder){                      // keepOrder：代號配對不動，只找方向
   const n = S.quota ? S.quota.length : 0;
   S.dirs = null;
@@ -575,6 +578,15 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
   const base = S.quota, score = makeScorer(base), R = nRounds(base);
   const pair = firstPair(base);
   const q567 = base.map(w567Count), q14 = base.map(x => x.w14||0);
+  const wt567 = base.map(x => W567.reduce((s,k)=> s + (x[k]||0)*WT[k], 0));
+  const inversions = ord => {                       // i 在 j 前面，卻是 W567 權重較低或 W1-4 較多
+    let c = 0;
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+      if(wt567[ord[i]] < wt567[ord[j]] - 1e-9) c++;
+      if(q14[ord[i]] > q14[ord[j]]) c++;
+    }
+    return c;
+  };
   // 懲罰項遠大於任何差距，等同硬性條件：Round 1 由 A 開始（4）＞ 起點規則（2）＞ 兩組反向（1）
   const cost = (ord, dirs) => {
     const a = ord[0], z = ord[n-1];
@@ -583,6 +595,7 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
     if(pair[0] >= 0 && !startOk(dirs[pair[0]], startSide(q567[a], q567[z]))) v += 2;
     if(pair[1] >= 0 && !startOk(dirs[pair[1]], startSide(q14[a], q14[z])))   v += 2;
     if(!pairOk(dirs, pair)) v += 1;
+    if(!keepOrder) v += SORT_COST*inversions(ord);
     return v;
   };
 
