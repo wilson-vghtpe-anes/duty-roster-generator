@@ -176,6 +176,8 @@
     打勾矩陣（匯出的 Excel 也是這張，格子是只有「OK」一個選項的下拉）：表頭的 A→F／F→A 是該輪的選班方向；
     <span style="background:#b7b7b7;padding:0 8px;border-radius:3px">灰格</span>
     ＝該代號的那個班別配額已用完，該輪不用選。
+    按最上面的 <b>⇄</b> 可以把那一輪整輪反過來選，上面的可挑比例會跟著更新；
+    再按一次「讓各代號的可挑比例最接近」就回到自動決定的方向。
   </p>
   <div class="scroll"><table id="tbl-matrix"></table></div>
   <div class="row" style="margin-top:16px">
@@ -833,7 +835,11 @@ function renderRound(){
          + '<td>—</td></tr>';
   document.getElementById('tbl-adv').innerHTML = n ? av : '';
 
-  let m = '<tr><th class="name" style="width:90px">班別</th>'
+  let m = '<tr><th class="name" style="width:90px">反向</th>'
+        + rs.map(r => r.seq.length > 1
+            ? `<th><button class="mini" title="整輪反過來選" onclick="flipRound(${r.no-1})">⇄</button></th>`
+            : '<th></th>').join('') + '</tr>'
+        + '<tr><th class="name">班別</th>'
         + rs.map(r=>`<th>${r.short}</th>`).join('') + '</tr>'
         + '<tr><th class="name"></th>'
         + rs.map(r=>`<th class="rh">Round ${r.no}</th>`).join('') + '</tr>'
@@ -850,6 +856,12 @@ function renderRound(){
       + '</tr>';
   }
   document.getElementById('tbl-matrix').innerHTML = n ? m : '';
+}
+function flipRound(i){                          // 手動把某一輪整輪反過來選
+  if(!S.quota) return;
+  const d = [...dirsOf(S.quota)];
+  d[i] = !d[i]; S.dirs = d;
+  save(); renderRound();
 }
 function tick(id,v){ if(v) S.ticks[id]=true; else delete S.ticks[id]; save(); }
 
