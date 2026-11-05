@@ -143,7 +143,7 @@
     權重：W1-4 一線 1、W5 一線 1.5、W6/W7 一線 2.5、W5 8F 0.5、W1-4 8F 0.3。
     平日有一線＋8樓夜班，假日只有一線。配額可手動修改，合計列會即時檢核。<br>
     想換代號：按住代號左邊的 <b>⠿</b> 上下拖曳，整列配額會移到新位置，選班方向也會跟著重算。<br>
-    自動分配的優先順序：① W567 一線（W5＋W6＋W7）班數每人最多差 1 班 → ② 週五班（W5、W5 8F）每人最多差 1 班 → ③ 權重盡量貼近平均。
+    自動分配的優先順序：① 週五班（W5、W5 8F）每人最多差 1 班 → ② W567 一線權重（W5×1.5＋W6×2.5＋W7×2.5）每人盡量接近 → ③ 總權重盡量貼近平均。
   </p>
   <div class="stats" id="stats"></div>
   <div class="scroll" style="margin-top:14px">
@@ -298,48 +298,52 @@ const FRI = ['w5','f5'];                                 // 「週五班」：W5
 const friCount = q => FRI.reduce((s,k)=> s + (q[k]||0), 0);
 const W567 = ['w5','w6','w7'];                           // 一線的 W5／W6／W7
 const w567Count = q => W567.reduce((s,k)=> s + (q[k]||0), 0);
+const w567Wt    = q => W567.reduce((s,k)=> s + (q[k]||0)*WT[k], 0);   // W567 一線權重
 
 /* ---------- 配額分配 ---------- */
 // 優先順序：
-//   1. W567 一線（W5＋W6＋W7）班數每人最多差 1 班
-//   2. 週五班（W5、W5 8F 各自，以及兩者合計）每人最多差 1 班
-//   3. 每人權重和平均的最大差距盡量小；同樣差距下再讓整體平方和最小
+//   1. 週五班（W5、W5 8F 各自，以及兩者合計）每人最多差 1 班——硬性條件
+//      （W567 權重要拉近最常動到 W5，不設硬性的話會有人週五班 3～4 班）
+//   2. W567 一線權重（W5×1.5＋W6×2.5＋W7×2.5）每人和平均的最大差距盡量小
+//   3. 每人總權重和平均的最大差距盡量小；同樣差距下再讓整體平方和最小
 // 其他班別每人限平均 ±1 班內。
 const span = (v, a) => v < Math.floor(a) ? Math.floor(a) - v : v > Math.ceil(a) ? v - Math.ceil(a) : 0;  // 超出平均取整上下限幾班
+const avgW567 = (c, n) => W567.reduce((s,k)=> s + c[k]*WT[k], 0)/n;
+const friBad = (x, c, n) => span(x.w5, c.w5/n) + span(x.f5, c.f5/n) + span(friCount(x), FRI.reduce((s,k)=> s + c[k], 0)/n);
 function calcQuota(){
   const n = nOn(); if(!n) return [];
-  const c = counts(), target = totalWeight(c)/n;
-  // 精確搜尋（有時間上限）和「貪婪＋微調」各算一組，取最大權重差距較小的
-  const maxDev = q => Math.max(...q.map(x => Math.abs(rowWeight(x)-target)));
+  const c = counts(), target = totalWeight(c)/n, a567 = avgW567(c, n);
+  // 精確搜尋（有時間上限）和「貪婪＋微調」各算一組，依優先順序比較取較好的
+  const rank = q => [
+    q.reduce((s,x)=> s + friBad(x, c, n), 0),
+    Math.max(...q.map(x => Math.abs(w567Wt(x)-a567))),
+    Math.max(...q.map(x => Math.abs(rowWeight(x)-target))),
+  ];
+  const better = (p, r) => { for(let i=0;i<p.length;i++){ if(p[i] < r[i]-1e-9) return true; if(p[i] > r[i]+1e-9) return false; } return true; };
   const g = greedyQuota(c, n, target); balanceQuota(g, c, target);
   const e = exactQuota(c, n, target);
   if(!e) return g;
   balanceQuota(e, c, target);
-  return maxDev(e) <= maxDev(g) + 1e-9 ? e : g;
+  return better(rank(e), rank(g)) ? e : g;
 }
-// 精確搜尋：列出每個人「可能的配額組合」，由小到大試最大權重差距門檻，
-// 第一個能湊滿本月所有班的門檻就是最佳解。
+// 精確搜尋：列出每個人「可能的配額組合」，依優先順序逐層用二分搜尋找最小可行門檻：
+// 只用週五班平均的組合，先找 W567 權重差距最小能到多少，再在這個條件下找總權重差距最小能到多少。
 function exactQuota(c, n, target){
-  const K = CATS.map(ct => ct.k);
-  const avg567 = W567.reduce((s,k)=> s + c[k], 0)/n, friAvg = FRI.reduce((s,k)=> s + c[k], 0)/n;
-  const rows = [], x = ZERO();
+  const K = CATS.map(ct => ct.k), a567 = avgW567(c, n);
+  const all = [], x = ZERO();
   (function rec(i){
     if(i === K.length){
-      if(span(w567Count(x), avg567)) return;
-      if(span(friCount(x), friAvg)) return;
-      rows.push({q:{...x}, d:Math.abs(rowWeight(x)-target)});
+      all.push({q:{...x}, d1:Math.abs(w567Wt(x)-a567), d2:Math.abs(rowWeight(x)-target), fri:!friBad(x, c, n)});
       return;
     }
-    const k = K[i], a = c[k]/n, slack = FRI.includes(k) ? 0 : 1;
-    for(let v = Math.max(0, Math.floor(a)-slack); v <= Math.ceil(a)+slack; v++){ x[k] = v; rec(i+1); }
+    const k = K[i], a = c[k]/n;
+    for(let v = Math.max(0, Math.floor(a)-1); v <= Math.ceil(a)+1; v++){ x[k] = v; rec(i+1); }
   })(0);
-  rows.sort((p,r)=> p.d - r.d);
 
-  // 門檻越寬一定越容易湊滿，所以用二分搜尋找最小可行門檻；
   // 超過時間上限的檢查當作不可行（結果仍合規，只是可能不是最佳）。
-  const deadline = Date.now() + 150;
-  const fits = lim => {
-    const R = rows.filter(r => r.d <= lim + 1e-9), L = R.length;
+  const deadline = Date.now() + 200;
+  const fits = rows => {                         // rows 裡挑 n 個（可重複）剛好湊滿本月所有班
+    const R = [...rows].sort((p,r)=> p.d2 - r.d2), L = R.length;
     // 剪枝用：R[i..] 之中各班別的最小／最大值
     const mn = Array.from({length:L+1}, ()=> ({})), mx = Array.from({length:L+1}, ()=> ({}));
     K.forEach(k => { mn[L][k] = Infinity; mx[L][k] = -Infinity; });
@@ -365,23 +369,30 @@ function exactQuota(c, n, target){
     };
     try{ return dfs(0, n) ? pick.map(r => ({...r})) : null; }catch(e){ return null; }
   };
-  const ds = [...new Set(rows.map(r => r.d))];
-  let lo = 0, hi = ds.length - 1, best = null;
-  while(lo <= hi){
-    const mid = (lo + hi) >> 1, q = fits(ds[mid]);
-    if(q){ best = q; hi = mid - 1; } else lo = mid + 1;
-  }
-  return best;
+  // 門檻越寬一定越容易湊滿，所以用二分搜尋找 key 的最小可行門檻
+  const minBy = (rows, key) => {
+    const ds = [...new Set(rows.map(key))].sort((a,b)=> a-b);
+    let lo = 0, hi = ds.length - 1, best = null;
+    while(lo <= hi){
+      const mid = (lo + hi) >> 1, q = fits(rows.filter(r => key(r) <= ds[mid] + 1e-9));
+      if(q){ best = {lim:ds[mid], q}; hi = mid - 1; } else lo = mid + 1;
+    }
+    return best;
+  };
+  const pool = all.filter(r => r.fri);            // ① 週五班平均
+  const a = minBy(pool, r => r.d1);               // ② W567 權重差距最小
+  if(!a) return null;
+  const z = minBy(pool.filter(r => r.d1 <= a.lim + 1e-9), r => r.d2);   // ③ 總權重差距最小
+  return z ? z.q : a.q;
 }
-// 貪婪：每班別先平均分（取整），餘數先給 W567／週五班拿得少的人，再給權重低的人。
-// 這樣分出來 W567 與週五班一定每人只差 1 班。
+// 貪婪：每班別先平均分（取整），餘數先給 W567 權重／週五班拿得少的人，再給總權重低的人。
 function greedyQuota(c, n, target){
   const q = Array.from({length:n}, ZERO);
   for(const ct of [...CATS].sort((a,b)=> WT[b.k]-WT[a.k])){
     const cnt = c[ct.k], base = Math.floor(cnt/n), rem = cnt % n;
     q.forEach(x => x[ct.k] = base);
     const rank = q.map((x,i)=>i).sort((a,b)=>{
-      if(W567.includes(ct.k) && w567Count(q[a]) !== w567Count(q[b])) return w567Count(q[a]) - w567Count(q[b]);
+      if(W567.includes(ct.k) && Math.abs(w567Wt(q[a]) - w567Wt(q[b])) > 1e-9) return w567Wt(q[a]) - w567Wt(q[b]);
       // W5 8F 的餘數先給 W5 拿得少的人，讓「週五班」（W5＋W5 8F）合計也平均
       if(ct.k === 'f5' && q[a].w5 !== q[b].w5) return q[a].w5 - q[b].w5;
       return rowWeight(q[a]) - rowWeight(q[b]);
@@ -390,10 +401,11 @@ function greedyQuota(c, n, target){
   }
   return q;
 }
-// 轉移／交換微調：不能讓 W567、週五班變不平均，也不能讓最大權重差距變大，只把平方和再壓低
+// 轉移／交換微調：不能讓週五班變不平均、W567 權重差距變大、總權重最大差距變大，只把平方和再壓低
 function balanceQuota(q, c, target){
   const n = q.length;
-  const avg567 = W567.reduce((s,k)=> s + c[k], 0)/n;
+  const a567 = avgW567(c, n);
+  const lim567 = Math.max(...q.map(x => Math.abs(w567Wt(x)-a567)));
   const lo = {}, hi = {}, avg = {};
   CATS.forEach(ct => {
     avg[ct.k] = c[ct.k]/n;
@@ -404,7 +416,7 @@ function balanceQuota(q, c, target){
   const lim = Math.max(...q.map(x => Math.abs(rowWeight(x)-target)));
   const cost = () => q.reduce((s,x)=>{
     const d = Math.abs(rowWeight(x)-target);
-    let v = 1000*span(w567Count(x), avg567)
+    let v = 1000*Math.max(0, Math.abs(w567Wt(x)-a567) - lim567 - 1e-9)
           + 100*(span(x.w5, avg.w5) + span(x.f5, avg.f5) + span(friCount(x), friAvg))
           + 1000*Math.max(0, d - lim - 1e-9)
           + d*d;
