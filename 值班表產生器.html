@@ -222,7 +222,7 @@ const LETTER = i => i < 26 ? String.fromCharCode(65+i)
 
 /* ---------- 狀態 ---------- */
 // 配額／選班順序的規則改版時加一；存在瀏覽器裡的舊版配額會被清掉、用新規則重算
-const ALGO = 2;
+const ALGO = 3;
 let S = load() || {
   algo: ALGO,
   ym: nextMonth(),
