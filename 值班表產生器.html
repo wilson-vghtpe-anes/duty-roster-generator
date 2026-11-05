@@ -162,7 +162,8 @@
     每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。同一班別裡，<b>參加人數少的輪次先選</b>：
     班數比別人多的人先在單人輪、部分人輪次選完，最後才是全部人都參加的輪次。
     Round 1 一定由 A 開始選；其餘各輪的方向依可挑比例決定，讓各代號盡量接近。
-    自動配對代號時，W567 權重（W5×1.5＋W6×2.5＋W7×2.5）高的排在 A 這側、W1-4 班數多的排在末位那側。
+    自動配對代號時，W567 權重（W5×1.5＋W6×2.5＋W7×2.5）高的排在 A 這側、W1-4 班數多的排在末位那側；
+    兩者都一樣的人之間，W5 8F 越多（一樣多就看總權重越高）的越排在這群人的兩端。
     每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
     （＝你在意的任何一天，這時候還沒被選走的機率）；每個代號的分數是它所有選班次的加權平均，
     灰格沒得選就不計分，所以分數與班數多寡無關。W1-4 8F 夜班值哪天差別不大，不列入分數。
@@ -223,7 +224,7 @@ const LETTER = i => i < 26 ? String.fromCharCode(65+i)
 
 /* ---------- 狀態 ---------- */
 // 配額／選班順序的規則改版時加一；存在瀏覽器裡的舊版配額會被清掉、用新規則重算
-const ALGO = 3;
+const ALGO = 4;
 let S = load() || {
   algo: ALGO,
   ym: nextMonth(),
@@ -574,6 +575,9 @@ const oppScore = () => {
 const BREAK_COST = 0.002;
 // 自動配對時：W567 權重高的排 A 這側、W1-4 班數多的排末位那側。每多一對順序顛倒就加 SORT_COST。
 const SORT_COST = 0.05;
+// W567 權重和 W1-4 班數都一樣的人之間：W5 8F 越多、（一樣多時）總權重越高的，越排在這群人的兩端。
+// 每多一對「負擔較重卻離兩端較遠」就加 EDGE_COST。
+const EDGE_COST = 0.02;
 function optimize(keepOrder){                      // keepOrder：代號配對不動，只找方向
   const n = S.quota ? S.quota.length : 0;
   S.dirs = null;
@@ -589,11 +593,36 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
     }
     return c;
   };
+  // 同組合（W567 權重、W1-4 班數都一樣）分群；只有 3 人以上的群才有「兩端」以外的位置
+  const tieKey = base.map((x,i)=> wt567[i]+'|'+q14[i]);
+  const groups = [...new Set(tieKey)].map(k => base.map((x,i)=> i).filter(i => tieKey[i] === k))
+                                     .filter(g => g.length >= 3);
+  const inTie = new Int32Array(n).fill(-1);
+  groups.forEach((g,gi) => g.forEach(i => inTie[i] = gi));
+  // heavier[a][b]：a 的負擔比 b 重（W5 8F 多，一樣多時總權重高）
+  const heavier = base.map((x,a)=> base.map((y,b)=>
+    ((x.f5||0) - (y.f5||0) || rowWeight(x) - rowWeight(y)) > 1e-9));
+  const ps = groups.map(g => new Int32Array(g.length)), len = new Int32Array(groups.length);
+  const edgeInv = ord => {                          // 同組合的人裡，負擔較重卻離兩端較遠的對數
+    if(!groups.length) return 0;
+    len.fill(0);
+    for(let p=0; p<n; p++){ const gi = inTie[ord[p]]; if(gi >= 0) ps[gi][len[gi]++] = p; }
+    let c = 0;
+    for(let gi=0; gi<groups.length; gi++){
+      const P = ps[gi], L = P.length, lo = P[0], hi = P[L-1];
+      for(let i=0;i<L;i++){
+        const di = Math.min(P[i]-lo, hi-P[i]);
+        for(let j=0;j<L;j++)
+          if(heavier[ord[P[i]]][ord[P[j]]] && di > Math.min(P[j]-lo, hi-P[j])) c++;
+      }
+    }
+    return c;
+  };
   // Round 1 由 A 開始：懲罰項遠大於任何差距，等同硬性條件
   const cost = (ord, dirs) => {
     let v = score.spread(ord, dirs) + BREAK_COST*nBreaks(dirs);
     if(R && score.r1First(ord, dirs) !== 0) v += 4;
-    if(!keepOrder) v += SORT_COST*inversions(ord);
+    if(!keepOrder) v += SORT_COST*inversions(ord) + EDGE_COST*edgeInv(ord);
     return v;
   };
 
