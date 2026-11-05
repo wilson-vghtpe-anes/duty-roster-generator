@@ -214,7 +214,10 @@ const LETTER = i => i < 26 ? String.fromCharCode(65+i)
                            : String.fromCharCode(64+Math.floor(i/26)) + String.fromCharCode(65+i%26);
 
 /* ---------- 狀態 ---------- */
+// 配額／選班順序的規則改版時加一；存在瀏覽器裡的舊版配額會被清掉、用新規則重算
+const ALGO = 2;
 let S = load() || {
+  algo: ALGO,
   ym: nextMonth(),
   roster: [],     // [{name, on}] 名單與是否參與本月；代號不綁人
   holi: {},       // 'YYYY-MM-DD' -> true/false（未列出者依週六日預設）
@@ -228,6 +231,9 @@ function load(){
   try{
     const v = JSON.parse(localStorage.getItem('duty-gen'));
     if(!v || !Array.isArray(v.roster)) return null;     // 舊版格式一律重來
+    if(v.algo !== ALGO){                                 // 名單、月份、假日保留，配額重算
+      v.algo = ALGO; v.quota = null; v.dirs = null; v.ticks = {};
+    }
     return v;
   }catch(e){ return null; }
 }
