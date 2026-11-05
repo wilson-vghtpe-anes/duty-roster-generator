@@ -159,11 +159,9 @@
 <div class="card">
   <h2><span class="step">4</span>選班順序與匯出</h2>
   <p class="hint">
-    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。某班別只剩一個人的輪次（他的班數比別人多），
-    會提到該班別最前面讓他先單獨選。方向預設逐輪交替，
-    但不強制——如果某幾輪不反轉能讓各代號更接近，就會改成同方向。
-    Round 1 一定由 A 開始選。W567、W1-4 的第一個多人輪各自由 A 和末位代號中「該班別班數較多」的那個先選（一樣多就不限），
-    而且兩組第一輪盡量反向：W567 第一個選的代號，到 W1-4 第一輪會是最後一個選。
+    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。同一班別裡，<b>參加人數少的輪次先選</b>：
+    班數比別人多的人先在單人輪、部分人輪次選完，最後才是全部人都參加的輪次。
+    Round 1 一定由 A 開始選；其餘各輪的方向依可挑比例決定，讓各代號盡量接近。
     自動配對代號時，W567 權重（W5×1.5＋W6×2.5＋W7×2.5）高的排在 A 這側、W1-4 班數多的排在末位那側。
     每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
     （＝你在意的任何一天，這時候還沒被選走的機率）；每個代號的分數是它所有選班次的加權平均，
@@ -463,7 +461,7 @@ function setQuota(i,k,v){
 /* ---------- Round 選班順序 ---------- */
 // 每個班別分成數輪，第 r 輪由「該班別配額 ≥ r」的代號參加（配額用完的代號該輪蓋掉）。
 // 每一輪的方向（A→末位 或 末位→A）各自決定，不必逐輪交替。預設是交替（上一輪最後選的，下一輪先選），
-// 但 Round 1 一定 A 先選，W567、W1-4 的第一輪從 A／末位中該班別班數較多的那個開始，且兩組第一輪盡量反向；
+// 但 Round 1 一定 A 先選；
 // 按「讓各代號的可挑比例最接近」時，會連同代號配對一起找差距最小的方向組合。
 const RGROUPS = [
   {short:'W567',  name:'W5 / W6 / W7 一線', keys:['w5','w6','w7']},
@@ -474,47 +472,17 @@ const RGROUPS = [
 const groupQ = (Q, g) => Q.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
 // 總輪數＝各班別最大配額的和；配額怎麼換到別的代號，輪數都不變
 const nRounds = Q => RGROUPS.reduce((s,g)=> s + Math.max(0, ...groupQ(Q,g)), 0);
-// 一個班別各輪的順序（第 r 輪＝配額 ≥ r 的代號參加）：只剩一個人的輪次（班數比別人多的那幾班）
-// 提到該班別最前面，其餘照 r 由小到大。配額換到別的代號，順序都不變。
+// 一個班別各輪的順序（第 r 輪＝配額 ≥ r 的代號參加）：參加人數少的輪次先選——
+// 只剩一個人的單人輪、再來只有部分人的輪次（人數由少到多），全部人都參加的輪次放最後。
+// 配額換到別的代號，順序都不變。
 function roundOrder(q){
-  const maxR = Math.max(0, ...q), solo = [], rest = [];
-  for(let r=1; r<=maxR; r++) (q.filter(v => v >= r).length === 1 ? solo : rest).push(r);
-  return [...solo, ...rest];
+  const maxR = Math.max(0, ...q), part = [], full = [];
+  for(let r=maxR; r>=1; r--) (q.every(v => v >= r) ? full : part).push(r);
+  return [...part, ...full.reverse()];
 }
-const isSolo = (q, r) => q.filter(v => v >= r).length === 1;
 const altDirs = R => Array.from({length:R}, (_,i)=> i%2 === 0);
-// 第一輪起點：
-//   - Round 1（整張表第一輪）一定 A 先選
-//   - W567、W1-4 的第一個多人輪各自從「A 和末位代號中，該班別班數較多的那個」開始選（一樣多就不限）
-//   - 兩組第一個多人輪盡量反向：W567 第一個選的人，到 W1-4 變成最後一個選
-//   （單人輪只有一個人，沒有方向可言）
-// 代號配對可以調，所以通常三條同時成立（A 的 W567 不少於末位、末位的 W1-4 不少於 A）。
-const firstRound = (Q, short) => {             // 該班別第一個多人輪在整張表的位置
-  let i = 0;
-  for(const g of RGROUPS){
-    const q = groupQ(Q,g), ro = roundOrder(q);
-    if(g.short === short){
-      if(!ro.length) return -1;
-      const k = ro.findIndex(r => !isSolo(q, r));
-      return i + (k < 0 ? 0 : k);
-    }
-    i += ro.length;
-  }
-  return -1;
-};
-const firstPair = Q => [firstRound(Q,'W567'), firstRound(Q,'W1-4')];
-const pairOk = (d, p) => p[0] < 0 || p[1] < 0 || d[p[0]] !== d[p[1]];
-// 該班別 A 比末位多 → 1（A 先選）；少 → -1（末位先選）；一樣 → 0（不限）
-const startSide = (a, z) => a > z ? 1 : a < z ? -1 : 0;
-const startOk = (fwd, side) => !side || fwd === (side > 0);
-const defaultDirs = Q => {                      // 逐輪交替（Round 1 是 A→），再把兩組第一輪的起點翻到對的一邊
-  const d = altDirs(nRounds(Q)), p = firstPair(Q), A = Q[0], Z = Q[Q.length-1];
-  const fix = (i, want) => { if(i > 0 && d[i] !== want) for(let j=i; j<d.length; j++) d[j] = !d[j]; };
-  const s0 = startSide(w567Count(A), w567Count(Z)), s1 = startSide(A.w14||0, Z.w14||0);
-  if(s0) fix(p[0], s0 > 0);                     // p[0] 是 Round 1 時不動，A 先選優先
-  if(p[1] >= 0) fix(p[1], s1 ? s1 > 0 : (p[0] >= 0 ? !d[p[0]] : d[p[1]]));
-  return d;
-};
+// Round 1（整張表第一輪）一定 A 先選；其餘各輪方向都依可挑比例決定。
+const defaultDirs = Q => altDirs(nRounds(Q));   // 逐輪交替，Round 1 是 A→
 const dirsOf  = Q => (Array.isArray(S.dirs) && S.dirs.length === nRounds(Q)) ? S.dirs : defaultDirs(Q);
 const nBreaks = d => d.reduce((s,x,i)=> s + (i && x === d[i-1] ? 1 : 0), 0);   // 沒有反轉的輪數
 
@@ -609,8 +577,7 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
   S.dirs = null;
   if(n < 2) return;
   const base = S.quota, score = makeScorer(base), R = nRounds(base);
-  const pair = firstPair(base);
-  const q567 = base.map(w567Count), q14 = base.map(x => x.w14||0);
+  const q14 = base.map(x => x.w14||0);
   const wt567 = base.map(x => W567.reduce((s,k)=> s + (x[k]||0)*WT[k], 0));
   const inversions = ord => {                       // i 在 j 前面，卻是 W567 權重較低或 W1-4 較多
     let c = 0;
@@ -620,14 +587,10 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
     }
     return c;
   };
-  // 懲罰項遠大於任何差距，等同硬性條件：Round 1 由 A 開始（4）＞ 起點規則（2）＞ 兩組反向（1）
+  // Round 1 由 A 開始：懲罰項遠大於任何差距，等同硬性條件
   const cost = (ord, dirs) => {
-    const a = ord[0], z = ord[n-1];
     let v = score.spread(ord, dirs) + BREAK_COST*nBreaks(dirs);
     if(R && score.r1First(ord, dirs) !== 0) v += 4;
-    if(pair[0] >= 0 && !startOk(dirs[pair[0]], startSide(q567[a], q567[z]))) v += 2;
-    if(pair[1] >= 0 && !startOk(dirs[pair[1]], startSide(q14[a], q14[z])))   v += 2;
-    if(!pairOk(dirs, pair)) v += 1;
     if(!keepOrder) v += SORT_COST*inversions(ord);
     return v;
   };
