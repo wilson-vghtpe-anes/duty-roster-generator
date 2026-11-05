@@ -159,9 +159,10 @@
 <div class="card">
   <h2><span class="step">4</span>選班順序與匯出</h2>
   <p class="hint">
-    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。方向預設逐輪交替，
+    每一輪固定整條 A→末位 或 末位→A（該輪沒份的代號跳過）。某班別只剩一個人的輪次（他的班數比別人多），
+    會提到該班別最前面讓他先單獨選。方向預設逐輪交替，
     但不強制——如果某幾輪不反轉能讓各代號更接近，就會改成同方向。
-    Round 1 一定由 A 開始選。W567、W1-4 的第一輪各自由 A 和末位代號中「該班別班數較多」的那個先選（一樣多就不限），
+    Round 1 一定由 A 開始選。W567、W1-4 的第一個多人輪各自由 A 和末位代號中「該班別班數較多」的那個先選（一樣多就不限），
     而且兩組第一輪盡量反向：W567 第一個選的代號，到 W1-4 第一輪會是最後一個選。
     自動配對代號時，W567 權重（W5×1.5＋W6×2.5＋W7×2.5）高的排在 A 這側、W1-4 班數多的排在末位那側。
     每次選班的價值＝該班別搶手度 × <b>輪到我時還剩多少比例的班可挑</b>
@@ -473,18 +474,31 @@ const RGROUPS = [
 const groupQ = (Q, g) => Q.map(x => g.keys.reduce((s,k)=> s + (x[k]||0), 0));
 // 總輪數＝各班別最大配額的和；配額怎麼換到別的代號，輪數都不變
 const nRounds = Q => RGROUPS.reduce((s,g)=> s + Math.max(0, ...groupQ(Q,g)), 0);
+// 一個班別各輪的順序（第 r 輪＝配額 ≥ r 的代號參加）：只剩一個人的輪次（班數比別人多的那幾班）
+// 提到該班別最前面，其餘照 r 由小到大。配額換到別的代號，順序都不變。
+function roundOrder(q){
+  const maxR = Math.max(0, ...q), solo = [], rest = [];
+  for(let r=1; r<=maxR; r++) (q.filter(v => v >= r).length === 1 ? solo : rest).push(r);
+  return [...solo, ...rest];
+}
+const isSolo = (q, r) => q.filter(v => v >= r).length === 1;
 const altDirs = R => Array.from({length:R}, (_,i)=> i%2 === 0);
 // 第一輪起點：
 //   - Round 1（整張表第一輪）一定 A 先選
-//   - W567、W1-4 的第一輪各自從「A 和末位代號中，該班別班數較多的那個」開始選（一樣多就不限）
-//   - 兩組第一輪盡量反向：W567 第一個選的人，到 W1-4 第一輪變成最後一個選
+//   - W567、W1-4 的第一個多人輪各自從「A 和末位代號中，該班別班數較多的那個」開始選（一樣多就不限）
+//   - 兩組第一個多人輪盡量反向：W567 第一個選的人，到 W1-4 變成最後一個選
+//   （單人輪只有一個人，沒有方向可言）
 // 代號配對可以調，所以通常三條同時成立（A 的 W567 不少於末位、末位的 W1-4 不少於 A）。
-const firstRound = (Q, short) => {
+const firstRound = (Q, short) => {             // 該班別第一個多人輪在整張表的位置
   let i = 0;
   for(const g of RGROUPS){
-    const m = Math.max(0, ...groupQ(Q,g));
-    if(g.short === short) return m ? i : -1;
-    i += m;
+    const q = groupQ(Q,g), ro = roundOrder(q);
+    if(g.short === short){
+      if(!ro.length) return -1;
+      const k = ro.findIndex(r => !isSolo(q, r));
+      return i + (k < 0 ? 0 : k);
+    }
+    i += ro.length;
   }
   return -1;
 };
@@ -510,8 +524,7 @@ function roundList(){
   const out = []; let i = 0;
   for(const g of RGROUPS){
     const q = groupQ(S.quota, g);
-    const maxR = Math.max(0, ...q);
-    for(let r=1; r<=maxR; r++){
+    for(const r of roundOrder(q)){
       const join = q.map((v,j)=>j).filter(j => q[j] >= r);
       const fwd = dirs[i];
       const seq = fwd ? join : [...join].reverse();
@@ -538,7 +551,7 @@ const RVAL = {'W567':2.5, 'W1-4':1, 'W5 8F':0.5, '8F':0};
 function makeScorer(base){
   const n = base.length;
   const G = RGROUPS.map(g => groupQ(base, g));
-  const T = G.map(a => a.reduce((x,y)=> x+y, 0)), M = G.map(a => Math.max(0, ...a));
+  const T = G.map(a => a.reduce((x,y)=> x+y, 0)), RO = G.map(roundOrder);
   const V = RGROUPS.map(g => RVAL[g.short] ?? 1);
   const num = new Float64Array(n), den = new Float64Array(n);
   const run = (order, dirs) => {
@@ -546,9 +559,9 @@ function makeScorer(base){
     let ri = 0;
     for(let g=0; g<G.length; g++){
       const q = G[g], v = V[g], tot = T[g];
-      if(!v){ ri += M[g]; continue; }
+      if(!v){ ri += RO[g].length; continue; }
       let t = 0;
-      for(let r=1; r<=M[g]; r++){
+      for(const r of RO[g]){
         const fwd = dirs[ri++];
         for(let s=0; s<n; s++){
           const i = fwd ? s : n-1-s;
@@ -569,6 +582,14 @@ function makeScorer(base){
     }
     const mean = sum/n;
     return (mx - mn) + 0.001*(sq/n - mean*mean);
+  };
+  // Round 1（整張表第一輪）第一個選的是第幾個代號
+  const g0 = G.findIndex(a => Math.max(0, ...a) > 0);
+  score.r1First = (order, dirs) => {
+    if(g0 < 0) return 0;
+    const q = G[g0], r = RO[g0][0];
+    for(let s=0; s<n; s++){ const i = dirs[0] ? s : n-1-s; if(q[order[i]] >= r) return i; }
+    return 0;
   };
   return score;
 }
@@ -603,7 +624,7 @@ function optimize(keepOrder){                      // keepOrder：代號配對�
   const cost = (ord, dirs) => {
     const a = ord[0], z = ord[n-1];
     let v = score.spread(ord, dirs) + BREAK_COST*nBreaks(dirs);
-    if(R && !dirs[0]) v += 4;
+    if(R && score.r1First(ord, dirs) !== 0) v += 4;
     if(pair[0] >= 0 && !startOk(dirs[pair[0]], startSide(q567[a], q567[z]))) v += 2;
     if(pair[1] >= 0 && !startOk(dirs[pair[1]], startSide(q14[a], q14[z])))   v += 2;
     if(!pairOk(dirs, pair)) v += 1;
