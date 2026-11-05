@@ -42,6 +42,11 @@
   th{background:#f7f8fa;font-weight:600;font-size:13px}
   td.name,th.name{text-align:left;white-space:nowrap}
   td.code{font-weight:700;letter-spacing:.05em}
+  .grip{display:inline-block;padding:4px 8px 4px 2px;margin:-4px 0;color:var(--muted);font-weight:400;
+        cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+  tr.dragging td{background:var(--accent-soft)}
+  tr.drop-before td{box-shadow:inset 0 3px 0 var(--accent)}
+  tr.drop-after td{box-shadow:inset 0 -3px 0 var(--accent)}
   .scroll{overflow-x:auto}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .num{width:56px;text-align:center}
@@ -137,6 +142,7 @@
   <p class="hint">
     權重：W1-4 一線 1、W5 一線 1.5、W6/W7 一線 2.5、W5 8F 0.5、W1-4 8F 0.3。
     平日有一線＋8樓夜班，假日只有一線。配額可手動修改，合計列會即時檢核。<br>
+    想換代號：按住代號左邊的 <b>⠿</b> 上下拖曳，整列配額會移到新位置，選班方向也會跟著重算。<br>
     自動分配的優先順序：① W567 一線（W5＋W6＋W7）班數每人最多差 1 班 → ② 週五班（W5、W5 8F）每人最多差 1 班 → ③ 權重盡量貼近平均。
   </p>
   <div class="stats" id="stats"></div>
@@ -562,7 +568,7 @@ const oppScore = () => {
 // 把已算好的配額組合重新配到代號上，並決定每輪方向，讓各代號的可挑比例差距最小。
 // 不反轉要「換到」至少 BREAK_COST 的差距改善才划算，否則維持逐輪交替。
 const BREAK_COST = 0.002;
-function optimize(){
+function optimize(keepOrder){                      // keepOrder：代號配對不動，只找方向
   const n = S.quota ? S.quota.length : 0;
   S.dirs = null;
   if(n < 2) return;
@@ -583,6 +589,7 @@ function optimize(){
   // 固定方向，找最好的代號配對
   const permSearch = dirs => {
     let best = identity(n), bestC = cost(best, dirs);
+    if(keepOrder) return {ord:best, dirs, c:bestC};
     if(n <= 8){                                     // 全排列窮舉（8! = 40320）
       const a = identity(n), cnt = new Array(n).fill(0);
       let i = 0;
@@ -653,6 +660,40 @@ function optimize(){
   S.quota = best.ord.map(i => base[i]);
   S.dirs  = best.dirs;
   S.ticks = {};
+}
+/* ---------- 拖曳調整代號順序（滑鼠、觸控都可以） ---------- */
+let drag = null;
+function dragStart(e, i){
+  e.preventDefault();
+  const rows = [...document.querySelectorAll('#tbl-quota tr[data-i]')];
+  drag = {from:i, to:i, rows};
+  rows[i].classList.add('dragging');
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(err){}
+}
+function dragMove(e){
+  if(!drag) return;
+  const rs = drag.rows, y = e.clientY;
+  let to = rs.findIndex(r => y < r.getBoundingClientRect().bottom);
+  if(to < 0) to = rs.length - 1;
+  drag.to = to;
+  rs.forEach((r,k) => {
+    r.classList.toggle('drop-before', k === to && to < drag.from);
+    r.classList.toggle('drop-after',  k === to && to > drag.from);
+  });
+}
+function dragCancel(){
+  if(drag) drag.rows.forEach(r => r.classList.remove('dragging','drop-before','drop-after'));
+  drag = null;
+}
+function dragEnd(){
+  if(!drag) return;
+  const {from, to} = drag;
+  dragCancel();
+  if(from === to || !S.quota) return;
+  const [row] = S.quota.splice(from, 1);
+  S.quota.splice(to, 0, row);
+  optimize(true);                                  // 代號配對照你排的，只重算各輪方向
+  save(); render();
 }
 function bestOrder(){
   if(!S.quota) S.quota = calcQuota();
@@ -746,7 +787,9 @@ function renderQuota(){
     const q = quotaOf(i);
     CATS.forEach(ct => sum[ct.k] += (q[ct.k]||0));
     const w = rowWeight(q), diff = w-target;
-    h += `<tr><td class="code">${LETTER(i)}</td>`
+    h += `<tr data-i="${i}"><td class="code"><span class="grip" title="拖曳調整代號順序"
+            onpointerdown="dragStart(event,${i})" onpointermove="dragMove(event)"
+            onpointerup="dragEnd()" onpointercancel="dragCancel()">⠿</span>${LETTER(i)}</td>`
       + CATS.map(ct=>`<td><input class="num" type="number" min="0" value="${q[ct.k]||0}"
           onchange="setQuota(${i},'${ct.k}',this.value)"></td>`).join('')
       + `<td>${rowShifts(q)}</td><td><b>${round1(w)}</b></td>
