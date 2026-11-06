@@ -47,6 +47,10 @@
   tr.dragging td{background:var(--accent-soft)}
   tr.drop-before td{box-shadow:inset 0 3px 0 var(--accent)}
   tr.drop-after td{box-shadow:inset 0 -3px 0 var(--accent)}
+  .col-dragging{background:var(--accent-soft) !important}
+  .drop-left{box-shadow:inset 3px 0 0 var(--accent)}
+  .drop-right{box-shadow:inset -3px 0 0 var(--accent)}
+  th .grip{padding:4px 4px;margin:-4px 0}
   .scroll{overflow-x:auto}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .num{width:56px;text-align:center}
@@ -177,8 +181,9 @@
     打勾矩陣（匯出的 Excel 也是這張，格子是只有「OK」一個選項的下拉）：表頭的 A→F／F→A 是該輪的選班方向；
     <span style="background:#b7b7b7;padding:0 8px;border-radius:3px">灰格</span>
     ＝該代號的那個班別配額已用完，該輪不用選。
-    按最上面的 <b>⇄</b> 可以把那一輪整輪反過來選，上面的可挑比例會跟著更新；
-    再按一次「讓各代號的可挑比例最接近」就回到自動決定的方向。
+    按住最上面的 <b>⠿</b> 左右拖曳可以調整輪次（放開後輪次重新編號，並依新的順序重算各輪方向）；
+    按 <b>⇄</b> 可以把那一輪整輪反過來選，上面的可挑比例會跟著更新。
+    再按一次「讓各代號的可挑比例最接近」就回到自動決定的輪次與方向。
   </p>
   <div class="scroll"><table id="tbl-matrix"></table></div>
   <div class="row" style="margin-top:16px">
@@ -232,7 +237,8 @@ let S = load() || {
   holi: {},       // 'YYYY-MM-DD' -> true/false（未列出者依週六日預設）
   ovr:  {},       // 'YYYY-MM-DD' -> 'W1-4'|'W5'|'W6'|'W7'
   quota: null,    // [{w14,...}] 依代號索引
-  dirs:  null,    // [true=A→末位, false=末位→A] 每輪方向；null＝逐輪交替
+  dirs:  null,    // [true=A→末位, false=末位→A] 每輪方向（依畫面上的輪次）；null＝逐輪交替
+  rorder: null,   // 手動拖曳後的輪次順序（第 p 輪＝自動順序的第 rorder[p] 輪）；null＝自動順序
   ticks: {},      // 'round-代號' -> true（打勾矩陣）
 };
 function save(){ try{ localStorage.setItem('duty-gen', JSON.stringify(S)); }catch(e){} }
@@ -241,7 +247,7 @@ function load(){
     const v = JSON.parse(localStorage.getItem('duty-gen'));
     if(!v || !Array.isArray(v.roster)) return null;     // 舊版格式一律重來
     if(v.algo !== ALGO){                                 // 名單、月份、假日保留，配額重算
-      v.algo = ALGO; v.quota = null; v.dirs = null; v.ticks = {};
+      v.algo = ALGO; v.quota = null; v.dirs = null; v.rorder = null; v.ticks = {};
     }
     return v;
   }catch(e){ return null; }
@@ -252,7 +258,7 @@ function nextMonth(){
 }
 const nOn = () => S.roster.filter(r => r.on).length;
 const onNames = () => S.roster.filter(r => r.on).map(r => r.name);
-function resetQuota(){ S.quota = null; S.dirs = null; S.ticks = {}; }
+function resetQuota(){ S.quota = null; S.dirs = null; S.rorder = null; S.ticks = {}; }
 
 /* ---------- 日期 ---------- */
 const pad = n => String(n).padStart(2,'0');
@@ -458,7 +464,7 @@ function setQuota(i,k,v){
   if(!S.quota) S.quota = calcQuota();
   if(!S.quota[i]) return;
   S.quota[i][k] = Math.max(0, parseInt(v)||0);
-  S.dirs = null; S.ticks = {}; save(); renderQuota(); renderRound();
+  S.dirs = null; S.rorder = null; S.ticks = {}; save(); renderQuota(); renderRound();
 }
 
 /* ---------- Round 選班順序 ---------- */
@@ -489,25 +495,33 @@ const defaultDirs = Q => altDirs(nRounds(Q));   // 逐輪交替，Round 1 是 A�
 const dirsOf  = Q => (Array.isArray(S.dirs) && S.dirs.length === nRounds(Q)) ? S.dirs : defaultDirs(Q);
 const nBreaks = d => d.reduce((s,x,i)=> s + (i && x === d[i-1] ? 1 : 0), 0);   // 沒有反轉的輪數
 
+// 自動順序下的所有輪次：[{g: 第幾個班別, r: 該班別的第幾輪}]
+const autoRounds = Q => RGROUPS.flatMap((g,gi)=> roundOrder(groupQ(Q,g)).map(r => ({g:gi, r})));
+// 手動拖曳過的輪次順序；輪數變了（配額改了）就回到自動順序
+function rorderOf(Q){
+  const R = nRounds(Q), o = S.rorder;
+  if(!Array.isArray(o) || o.length !== R) return null;
+  const seen = new Array(R).fill(false);
+  for(const k of o){ if(!(k >= 0 && k < R) || seen[k]) return null; seen[k] = true; }
+  return o;
+}
+const orderedRounds = Q => { const a = autoRounds(Q), o = rorderOf(Q); return o ? o.map(k => a[k]) : a; };
+
 function roundList(){
   const n = nOn(); if(!n || !S.quota) return [];
   const dirs = dirsOf(S.quota);
-  const out = []; let i = 0;
-  for(const g of RGROUPS){
-    const q = groupQ(S.quota, g);
-    for(const r of roundOrder(q)){
-      const join = q.map((v,j)=>j).filter(j => q[j] >= r);
-      const fwd = dirs[i];
-      const seq = fwd ? join : [...join].reverse();
-      out.push({
-        no: ++i, short:g.short, cat:g.name, fwd, seq,
-        blocked: q.map((v,j)=>j).filter(j => q[j] < r),
-        label: seq.length > 1 ? `${LETTER(seq[0])}→${LETTER(seq[seq.length-1])}`
-                              : LETTER(seq[0]),          // 只剩一個代號就不用箭頭
-      });
-    }
-  }
-  return out;
+  return orderedRounds(S.quota).map(({g:gi, r}, i) => {
+    const g = RGROUPS[gi], q = groupQ(S.quota, g);
+    const join = q.map((v,j)=>j).filter(j => q[j] >= r);
+    const fwd = dirs[i];
+    const seq = fwd ? join : [...join].reverse();
+    return {
+      no: i+1, short:g.short, cat:g.name, fwd, seq,
+      blocked: q.map((v,j)=>j).filter(j => q[j] < r),
+      label: seq.length > 1 ? `${LETTER(seq[0])}→${LETTER(seq[seq.length-1])}`
+                            : LETTER(seq[0]),          // 只剩一個代號就不用箭頭
+    };
+  });
 }
 
 /* ---------- 先選機會分 ---------- */
@@ -519,26 +533,25 @@ function roundList(){
 const RVAL = {'W567':2.5, 'W1-4':1, 'W5 8F':0.5, '8F':0};
 // 回傳 (order, dirs) => 各代號分數；第 i 個代號拿 base[order[i]] 那組配額。
 // 窮舉排列時會呼叫幾萬次，所以先把各班別配額算好、迴圈裡不配置新陣列。
+// 輪次照畫面上的順序（含手動拖曳）走，dirs[p] 是第 p 輪的方向。
 function makeScorer(base){
   const n = base.length;
   const G = RGROUPS.map(g => groupQ(base, g));
-  const T = G.map(a => a.reduce((x,y)=> x+y, 0)), RO = G.map(roundOrder);
+  const T = G.map(a => a.reduce((x,y)=> x+y, 0));
   const V = RGROUPS.map(g => RVAL[g.short] ?? 1);
-  const num = new Float64Array(n), den = new Float64Array(n);
+  const RS = orderedRounds(base), R = RS.length;
+  const RG = Int32Array.from(RS, x => x.g), RR = Int32Array.from(RS, x => x.r);
+  const num = new Float64Array(n), den = new Float64Array(n), used = new Float64Array(G.length);
   const run = (order, dirs) => {
-    num.fill(0); den.fill(0);
-    let ri = 0;
-    for(let g=0; g<G.length; g++){
-      const q = G[g], v = V[g], tot = T[g];
-      if(!v){ ri += RO[g].length; continue; }
-      let t = 0;
-      for(const r of RO[g]){
-        const fwd = dirs[ri++];
-        for(let s=0; s<n; s++){
-          const i = fwd ? s : n-1-s;
-          if(q[order[i]] < r) continue;
-          num[i] += v * (tot - t)/tot; den[i] += v; t++;
-        }
+    num.fill(0); den.fill(0); used.fill(0);       // used[g]：該班別已被選走幾班
+    for(let p=0; p<R; p++){
+      const g = RG[p], v = V[g];
+      if(!v) continue;
+      const q = G[g], tot = T[g], r = RR[p], fwd = dirs[p];
+      for(let s=0; s<n; s++){
+        const i = fwd ? s : n-1-s;
+        if(q[order[i]] < r) continue;
+        num[i] += v * (tot - used[g])/tot; den[i] += v; used[g]++;
       }
     }
   };
@@ -555,10 +568,9 @@ function makeScorer(base){
     return (mx - mn) + 0.001*(sq/n - mean*mean);
   };
   // Round 1（整張表第一輪）第一個選的是第幾個代號
-  const g0 = G.findIndex(a => Math.max(0, ...a) > 0);
   score.r1First = (order, dirs) => {
-    if(g0 < 0) return 0;
-    const q = G[g0], r = RO[g0][0];
+    if(!R) return 0;
+    const q = G[RG[0]], r = RR[0];
     for(let s=0; s<n; s++){ const i = dirs[0] ? s : n-1-s; if(q[order[i]] >= r) return i; }
     return 0;
   };
@@ -579,9 +591,10 @@ const SORT_COST = 0.05;
 //（離 A 或末位較近的那端）。例如這群人在 A 這側，重的就往 A 靠；剛好跨在中間，重的就排兩端。
 // 每多一對「負擔較重卻離外側較遠」就加 EDGE_COST。
 const EDGE_COST = 0.02;
-function optimize(keepOrder){                      // keepOrder：代號配對不動，只找方向
+function optimize(keepOrder){                      // keepOrder：代號配對、輪次順序不動，只找方向
   const n = S.quota ? S.quota.length : 0;
   S.dirs = null;
+  if(!keepOrder) S.rorder = null;                  // 輪次也回到自動順序
   if(n < 2) return;
   const base = S.quota, score = makeScorer(base), R = nRounds(base);
   const q14 = base.map(x => x.w14||0);
@@ -866,10 +879,13 @@ function renderRound(){
          + '<td>—</td></tr>';
   document.getElementById('tbl-adv').innerHTML = n ? av : '';
 
-  let m = '<tr><th class="name" style="width:90px">反向</th>'
-        + rs.map(r => r.seq.length > 1
-            ? `<th><button class="mini" title="整輪反過來選" onclick="flipRound(${r.no-1})">⇄</button></th>`
-            : '<th></th>').join('') + '</tr>'
+  let m = '<tr><th class="name" style="width:90px">移動／反向</th>'
+        + rs.map(r => `<th style="white-space:nowrap"><span class="grip" title="左右拖曳調整輪次"
+            onpointerdown="rdragStart(event,${r.no-1})" onpointermove="rdragMove(event)"
+            onpointerup="rdragEnd()" onpointercancel="rdragCancel()">⠿</span>`
+            + (r.seq.length > 1
+              ? `<button class="mini" title="整輪反過來選" onclick="flipRound(${r.no-1})">⇄</button>` : '')
+            + '</th>').join('') + '</tr>'
         + '<tr><th class="name">班別</th>'
         + rs.map(r=>`<th>${r.short}</th>`).join('') + '</tr>'
         + '<tr><th class="name"></th>'
@@ -893,6 +909,51 @@ function flipRound(i){                          // 手動把某一輪整輪反�
   const d = [...dirsOf(S.quota)];
   d[i] = !d[i]; S.dirs = d;
   save(); renderRound();
+}
+/* ---------- 拖曳調整輪次（打勾矩陣的欄，滑鼠、觸控都可以） ---------- */
+let rdrag = null;
+function rdragStart(e, p){
+  e.preventDefault();
+  const tbl = document.getElementById('tbl-matrix');
+  const rows = [...tbl.rows];
+  const head = [...rows[0].cells].slice(1);                    // 每一輪最上面那格
+  const col = k => rows.map(tr => tr.cells[k+1]).filter(Boolean);
+  rdrag = {from:p, to:p, head, col, box: tbl.closest('.scroll')};
+  col(p).forEach(c => c.classList.add('col-dragging'));
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(err){}
+}
+function rdragMove(e){
+  if(!rdrag) return;
+  const x = e.clientX, b = rdrag.box && rdrag.box.getBoundingClientRect();
+  if(b){                                                        // 拖到捲動區邊緣就自動捲
+    if(x < b.left + 40) rdrag.box.scrollLeft -= 12;
+    else if(x > b.right - 40) rdrag.box.scrollLeft += 12;
+  }
+  let to = rdrag.head.findIndex(c => x < c.getBoundingClientRect().right);
+  if(to < 0) to = rdrag.head.length - 1;
+  rdrag.to = to;
+  rdrag.head.forEach((c,k) => rdrag.col(k).forEach(td => {
+    td.classList.toggle('drop-left',  k === to && to < rdrag.from);
+    td.classList.toggle('drop-right', k === to && to > rdrag.from);
+  }));
+}
+function rdragCancel(){
+  if(rdrag) document.querySelectorAll('#tbl-matrix .col-dragging, #tbl-matrix .drop-left, #tbl-matrix .drop-right')
+    .forEach(c => c.classList.remove('col-dragging','drop-left','drop-right'));
+  rdrag = null;
+}
+function rdragEnd(){
+  if(!rdrag) return;
+  const {from, to} = rdrag;
+  rdragCancel();
+  if(from === to || !S.quota) return;
+  const R = nRounds(S.quota);
+  const o = [...(rorderOf(S.quota) || identity(R))];
+  const [k] = o.splice(from, 1);
+  o.splice(to, 0, k);
+  S.rorder = o;
+  optimize(true);                                  // 輪次照你排的，只重算各輪方向
+  save(); render();
 }
 function tick(id,v){ if(v) S.ticks[id]=true; else delete S.ticks[id]; save(); }
 
